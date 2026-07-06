@@ -1,0 +1,11 @@
+* text=auto
+*.bat text eol=crlf
+*.png binary
+*.jpg binary
+*.spz binary
+*.ply binary
+*.splat binary
+*.ksplat binary
+*.rad binary
+*.radc binary
+*.sog binary
