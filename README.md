@@ -128,6 +128,7 @@ npx wrangler r2 object put 3dgs-scenes/scenes/my-city.spz --file=./my-city.spz -
 | `options.lod` | ランタイムLoDツリー構築(デフォルト: `.rad`以外は`true`) |
 | `options.extSplats` | 32byte/スプラットの高精度座標。原点から離れる広域シーンで推奨 |
 | `options.paged` | ページングストリーミング(チャンク分割`.rad`用) |
+| `options.maxSplats` | 読み込むスプラット数の上限 |
 | `transform.rotationDeg` | 回転(度)。3DGSデータは通常Y軸下向きのためデフォルト `[180,0,0]` |
 | `camera` | 初期カメラ位置・注視点・FOV(省略時はバウンディングボックスから自動配置) |
 | `moveSpeed` | 初期移動速度(省略時はシーン規模から自動計算) |

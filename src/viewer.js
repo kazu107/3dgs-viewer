@@ -153,7 +153,12 @@ export class Viewer {
       maxSplats: options.maxSplats ?? undefined,
     });
 
-    await mesh.initialized;
+    try {
+      await mesh.initialized;
+    } catch (err) {
+      mesh.dispose();
+      throw err;
+    }
     if (id !== this.loadId) {
       // ロード中に別シーンへ切り替わった
       mesh.dispose();

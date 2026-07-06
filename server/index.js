@@ -116,6 +116,7 @@ async function fetchManifest() {
 async function discoverSceneFiles() {
   const objects = [];
   let ContinuationToken;
+  let pages = 0;
   do {
     const res = await s3.send(
       new ListObjectsV2Command({
@@ -125,13 +126,15 @@ async function discoverSceneFiles() {
         ContinuationToken,
       })
     );
+    pages += 1;
     for (const obj of res.Contents ?? []) {
-      if (hasSplatExtension(obj.Key)) {
+      // presign側と同じ検証を通ったキーだけを一覧に載せる
+      if (isValidSceneKey(obj.Key)) {
         objects.push({ key: obj.Key, size: obj.Size ?? 0 });
       }
     }
     ContinuationToken = res.IsTruncated ? res.NextContinuationToken : undefined;
-  } while (ContinuationToken && objects.length < 5000);
+  } while (ContinuationToken && pages < 20 && objects.length < 5000);
   return objects;
 }
 
@@ -212,6 +215,10 @@ app.get("/api/scenes", async (_req, res) => {
   }
 });
 
+// presigned URLの短期キャッシュ。有効期限の半分まで同じURLを返すことで、
+// ブラウザのHTTPキャッシュが同一シーンの再取得に効くようにする
+const presignCache = new Map(); // key -> { url, reuseUntil }
+
 // スプラットファイルの取得用URLを発行(ブラウザはR2から直接ダウンロードする)
 app.get("/api/scenes/url", async (req, res) => {
   const key = req.query.key;
@@ -223,14 +230,24 @@ app.get("/api/scenes/url", async (req, res) => {
   }
   try {
     if (R2_PUBLIC_BASE_URL) {
-      const url = `${R2_PUBLIC_BASE_URL}/${encodeURI(key)}`;
-      return res.json({ url, expiresIn: null });
+      // キーの各セグメントをエンコード("/"は保持、#や%を含むキーにも対応)
+      const encodedKey = key.split("/").map(encodeURIComponent).join("/");
+      return res.json({ url: `${R2_PUBLIC_BASE_URL}/${encodedKey}`, expiresIn: null });
+    }
+    const cached = presignCache.get(key);
+    if (cached && Date.now() < cached.reuseUntil) {
+      return res.json({ url: cached.url, expiresIn: URL_EXPIRES_SECONDS });
     }
     const url = await getSignedUrl(
       s3,
       new GetObjectCommand({ Bucket: R2_BUCKET, Key: key }),
       { expiresIn: URL_EXPIRES_SECONDS }
     );
+    if (presignCache.size > 500) presignCache.clear();
+    presignCache.set(key, {
+      url,
+      reuseUntil: Date.now() + (URL_EXPIRES_SECONDS * 1000) / 2,
+    });
     res.json({ url, expiresIn: URL_EXPIRES_SECONDS });
   } catch (err) {
     console.error("URL発行に失敗:", err);
@@ -245,12 +262,14 @@ app.use((req, res, next) => {
   next();
 });
 
-// ビルド済みフロントエンド(ハッシュ付きアセットは長期キャッシュ)
+// ビルド済みフロントエンド(ハッシュ付きアセットは長期キャッシュ、index.htmlは毎回検証)
 app.use(
   express.static(DIST_DIR, {
     setHeaders(res, filePath) {
       if (/\.(js|css|wasm|woff2?)$/.test(filePath) && /-[\w-]{8,}\./.test(filePath)) {
         res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+      } else if (filePath.endsWith("index.html")) {
+        res.setHeader("Cache-Control", "no-cache");
       }
     },
   })
@@ -258,7 +277,9 @@ app.use(
 
 // SPAフォールバック
 app.use((_req, res) => {
-  res.sendFile(path.join(DIST_DIR, "index.html"));
+  res.sendFile(path.join(DIST_DIR, "index.html"), {
+    headers: { "Cache-Control": "no-cache" },
+  });
 });
 
 app.listen(PORT, () => {

@@ -65,7 +65,15 @@ function showLoading(title) {
   overlay.setAttribute("aria-hidden", "false");
 }
 
+let lastLoadingUpdate = 0;
+
 function updateLoading(event) {
+  // 進捗イベントは高頻度で発火するため、DOM更新は10Hzに抑える(完了時は即時)
+  const now = performance.now();
+  const finished = event.lengthComputable && event.loaded >= event.total;
+  if (!finished && now - lastLoadingUpdate < 100) return;
+  lastLoadingUpdate = now;
+
   const bar = $("loading-bar");
   if (event.lengthComputable && event.total > 0) {
     bar.classList.remove("indeterminate");
@@ -89,6 +97,9 @@ function hideLoading() {
 
 function showLoadError(message, retry) {
   const overlay = $("loading-overlay");
+  // 起動失敗時などshowLoadingを経由しない経路でも必ず表示する
+  overlay.classList.remove("hidden");
+  overlay.setAttribute("aria-hidden", "false");
   overlay.querySelector(".loading-card").classList.add("error");
   $("loading-title").textContent = "読み込みに失敗しました";
   $("loading-bar").classList.remove("indeterminate");
@@ -180,14 +191,23 @@ function badge(text, accent = false) {
 
 // ---------- シーンロード ----------
 
+let loadSeq = 0;
+
 async function loadScene(scene) {
   if (state.loading === scene.id) return;
   state.loading = scene.id;
+  // 最後に開始したロードだけがUIを更新できる(古いロードの進捗・エラー・完了は無視)
+  const token = ++loadSeq;
   showLoading(`「${scene.name}」を読み込み中...`);
   try {
     const url = await resolveSceneUrl(scene);
-    const mesh = await viewer.loadScene(scene, url, { onProgress: updateLoading });
-    if (!mesh) return; // 別シーンへ切り替え済み
+    if (token !== loadSeq) return;
+    const mesh = await viewer.loadScene(scene, url, {
+      onProgress: (e) => {
+        if (token === loadSeq) updateLoading(e);
+      },
+    });
+    if (token !== loadSeq || !mesh) return; // 別シーンへ切り替え済み
     state.current = scene;
     $("scene-title").textContent = scene.name;
     $("scene-title").title = scene.name;
@@ -203,6 +223,7 @@ async function loadScene(scene) {
     const hash = `#scene=${encodeURIComponent(scene.id)}`;
     if (location.hash !== hash) history.replaceState(null, "", hash);
   } catch (err) {
+    if (token !== loadSeq) return; // 古いロードのエラーは表示しない
     console.error(err);
     showLoadError(err.message || String(err), () => loadScene(scene));
   } finally {

@@ -27,3 +27,5 @@ Thumbs.db
 *.splat
 *.ksplat
 *.sog
+*.rad
+*.radc
