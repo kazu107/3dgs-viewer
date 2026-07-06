@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="description" content="広域3D Gaussian Splattingシーンをフライカメラで自由に探索できるWebビューア" />
+  <title>3DGS World Viewer</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cdefs%3E%3CradialGradient id='g' cx='40%25' cy='35%25'%3E%3Cstop offset='0%25' stop-color='%2367e8f9'/%3E%3Cstop offset='100%25' stop-color='%236366f1'/%3E%3C/radialGradient%3E%3C/defs%3E%3Ccircle cx='16' cy='16' r='13' fill='url(%23g)'/%3E%3C/svg%3E" />
+  <script type="module" src="/src/main.js"></script>
+</head>
+<body>
+  <div id="canvas-host"></div>
+
+  <!-- 上部バー -->
+  <header class="topbar" id="topbar">
+    <div class="brand">
+      <span class="brand-mark"></span>
+      <span class="brand-name">3DGS <em>World Viewer</em></span>
+    </div>
+    <div class="scene-title" id="scene-title" title=""></div>
+    <nav class="topbar-actions">
+      <button class="icon-btn" id="btn-scenes" title="シーン一覧" aria-label="シーン一覧">
+        <svg viewBox="0 0 24 24"><path d="M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z"/></svg>
+      </button>
+      <button class="icon-btn" id="btn-settings" title="設定" aria-label="設定">
+        <svg viewBox="0 0 24 24"><path d="M12 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7zm7.4-2.6c.04-.3.06-.6.06-.9s-.02-.6-.06-.9l2.1-1.65a.5.5 0 0 0 .12-.64l-2-3.46a.5.5 0 0 0-.6-.22l-2.5 1a7.6 7.6 0 0 0-1.55-.9l-.38-2.65A.5.5 0 0 0 14.1 2h-4a.5.5 0 0 0-.5.42l-.38 2.65c-.55.23-1.07.53-1.55.9l-2.5-1a.5.5 0 0 0-.6.22l-2 3.46a.5.5 0 0 0 .12.64L4.8 11c-.04.3-.06.6-.06.9s.02.6.06.9l-2.1 1.65a.5.5 0 0 0-.12.64l2 3.46c.13.22.39.31.6.22l2.5-1c.48.37 1 .67 1.55.9l.38 2.65a.5.5 0 0 0 .5.42h4a.5.5 0 0 0 .5-.42l.38-2.65c.55-.23 1.07-.53 1.55-.9l2.5 1c.21.09.47 0 .6-.22l2-3.46a.5.5 0 0 0-.12-.64l-2.1-1.65z"/></svg>
+      </button>
+      <button class="icon-btn" id="btn-screenshot" title="スクリーンショット (P)" aria-label="スクリーンショット">
+        <svg viewBox="0 0 24 24"><path d="M9 3l-1.8 2H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-3.2L15 3H9zm3 15a5 5 0 1 1 0-10 5 5 0 0 1 0 10zm0-2.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5z"/></svg>
+      </button>
+      <button class="icon-btn" id="btn-fullscreen" title="フルスクリーン (F)" aria-label="フルスクリーン">
+        <svg viewBox="0 0 24 24"><path d="M4 4h6v2H6v4H4V4zm10 0h6v6h-2V6h-4V4zM4 14h2v4h4v2H4v-6zm14 0h2v6h-6v-2h4v-4z"/></svg>
+      </button>
+      <button class="icon-btn" id="btn-help" title="ヘルプ (H)" aria-label="ヘルプ">
+        <svg viewBox="0 0 24 24"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm.1 16.2a1.3 1.3 0 1 1 0-2.6 1.3 1.3 0 0 1 0 2.6zm1.6-6.1c-.7.5-1 .9-1 1.9h-1.6c0-1.6.6-2.3 1.5-3 .7-.5 1.1-.9 1.1-1.6 0-.9-.7-1.4-1.6-1.4-1 0-1.7.6-1.8 1.7H8.6C8.7 7.5 10.1 6 12.2 6c2 0 3.4 1.2 3.4 3 0 1.4-.7 2.3-1.9 3.1z"/></svg>
+      </button>
+    </nav>
+  </header>
+
+  <!-- シーン一覧パネル -->
+  <aside class="panel" id="panel-scenes" aria-hidden="true">
+    <div class="panel-header">
+      <h2>シーン一覧</h2>
+      <button class="icon-btn small panel-close" data-close="panel-scenes" aria-label="閉じる">
+        <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" stroke-width="2.2" stroke-linecap="round"/></svg>
+      </button>
+    </div>
+    <div class="panel-body" id="scene-list">
+      <div class="panel-note">読み込み中...</div>
+    </div>
+  </aside>
+
+  <!-- 設定パネル -->
+  <aside class="panel" id="panel-settings" aria-hidden="true">
+    <div class="panel-header">
+      <h2>設定</h2>
+      <button class="icon-btn small panel-close" data-close="panel-settings" aria-label="閉じる">
+        <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" stroke-width="2.2" stroke-linecap="round"/></svg>
+      </button>
+    </div>
+    <div class="panel-body">
+      <section class="setting-group">
+        <h3>操作</h3>
+        <label class="setting">
+          <span class="setting-label">移動速度 <output id="out-speed">2.0</output></span>
+          <input type="range" id="set-speed" min="-1" max="2" step="0.01" value="0.3" />
+        </label>
+        <label class="setting">
+          <span class="setting-label">視点感度 <output id="out-sensitivity">1.0</output></span>
+          <input type="range" id="set-sensitivity" min="0.2" max="3" step="0.05" value="1" />
+        </label>
+      </section>
+      <section class="setting-group">
+        <h3>カメラ</h3>
+        <label class="setting">
+          <span class="setting-label">視野角 (FOV) <output id="out-fov">65°</output></span>
+          <input type="range" id="set-fov" min="40" max="100" step="1" value="65" />
+        </label>
+      </section>
+      <section class="setting-group">
+        <h3>描画品質</h3>
+        <label class="setting">
+          <span class="setting-label">解像度スケール <output id="out-resolution">100%</output></span>
+          <input type="range" id="set-resolution" min="0.4" max="2" step="0.05" value="1" />
+        </label>
+        <label class="setting">
+          <span class="setting-label">スプラット品質 <output id="out-quality">高</output></span>
+          <input type="range" id="set-quality" min="0" max="2" step="1" value="2" />
+        </label>
+        <label class="setting setting-row">
+          <span class="setting-label">LoD (広域シーン最適化)</span>
+          <input type="checkbox" id="set-lod" checked />
+        </label>
+        <label class="setting">
+          <span class="setting-label">LoD 詳細度 <output id="out-lodscale">1.0</output></span>
+          <input type="range" id="set-lodscale" min="0.25" max="2" step="0.05" value="1" />
+        </label>
+      </section>
+      <section class="setting-group">
+        <h3>表示</h3>
+        <label class="setting setting-row">
+          <span class="setting-label">HUD を表示</span>
+          <input type="checkbox" id="set-hud" checked />
+        </label>
+      </section>
+    </div>
+  </aside>
+
+  <!-- HUD -->
+  <div id="hud">
+    <div class="hud-item"><span class="hud-label">FPS</span><span class="hud-value" id="hud-fps">--</span></div>
+    <div class="hud-item"><span class="hud-label">スプラット</span><span class="hud-value" id="hud-splats">--</span></div>
+    <div class="hud-item"><span class="hud-label">位置</span><span class="hud-value" id="hud-pos">--</span></div>
+    <div class="hud-item"><span class="hud-label">速度</span><span class="hud-value" id="hud-speed">--</span></div>
+  </div>
+  <div id="hint-bar">ダブルクリックでその場所へ飛行 / <kbd>H</kbd> ヘルプ</div>
+
+  <!-- ローディングオーバーレイ -->
+  <div id="loading-overlay" class="hidden" aria-hidden="true">
+    <div class="loading-card">
+      <div class="loading-spinner"></div>
+      <div class="loading-title" id="loading-title">シーンを読み込み中...</div>
+      <div class="progress-track"><div class="progress-fill" id="loading-bar"></div></div>
+      <div class="loading-detail" id="loading-detail"></div>
+    </div>
+  </div>
+
+  <!-- ヘルプモーダル -->
+  <div id="help-modal" class="modal hidden" aria-hidden="true">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h2>操作方法</h2>
+        <button class="icon-btn small" id="btn-help-close" aria-label="閉じる">
+          <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" stroke-width="2.2" stroke-linecap="round"/></svg>
+        </button>
+      </div>
+      <div class="modal-body">
+        <table class="controls-table">
+          <tr><th colspan="2">キーボード</th></tr>
+          <tr><td><kbd>W</kbd> <kbd>A</kbd> <kbd>S</kbd> <kbd>D</kbd> / 矢印キー</td><td>前後左右に移動</td></tr>
+          <tr><td><kbd>E</kbd> / <kbd>Q</kbd></td><td>上昇 / 下降</td></tr>
+          <tr><td><kbd>Shift</kbd> 押しながら</td><td>高速移動 (5倍)</td></tr>
+          <tr><td><kbd>Ctrl</kbd> 押しながら</td><td>低速移動 (0.2倍)</td></tr>
+          <tr><td><kbd>R</kbd></td><td>視点をリセット</td></tr>
+          <tr><td><kbd>F</kbd></td><td>フルスクリーン</td></tr>
+          <tr><td><kbd>P</kbd></td><td>スクリーンショット保存</td></tr>
+          <tr><td><kbd>H</kbd></td><td>このヘルプ</td></tr>
+          <tr><th colspan="2">マウス</th></tr>
+          <tr><td>左ドラッグ</td><td>視点を回転</td></tr>
+          <tr><td>右ドラッグ</td><td>平行移動 (パン)</td></tr>
+          <tr><td>ホイール</td><td>前進 / 後退</td></tr>
+          <tr><td>ダブルクリック</td><td>クリック地点へ飛行</td></tr>
+          <tr><th colspan="2">タッチ</th></tr>
+          <tr><td>1本指ドラッグ</td><td>視点を回転</td></tr>
+          <tr><td>2本指ドラッグ</td><td>平行移動</td></tr>
+          <tr><td>長押し</td><td>前進</td></tr>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- トースト -->
+  <div id="toast-container"></div>
+</body>
+</html>

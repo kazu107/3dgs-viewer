@@ -4,6 +4,9 @@ export default defineConfig({
   build: {
     target: "esnext",
     chunkSizeWarningLimit: 40000,
+    // OneDrive同期フォルダ内でViteの削除処理がクラッシュするため、
+    // クリーンは scripts/clean-dist.js (prebuild) が担当する
+    emptyOutDir: false,
   },
   optimizeDeps: {
     // Spark はWASM/WebWorkerを内包した単一ESMとして配布されるため、
