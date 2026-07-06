@@ -202,6 +202,28 @@ export class Viewer {
     this.#startFlight(toPos, toQuat, durationMs);
   }
 
+  /**
+   * COLMAPのworld-to-cameraポーズ(images.txtの1行)をビューア座標系の視点に変換する。
+   * カメラ中心 C = -R^T t、視線方向 = R^T (0,0,1)。その後、シーンに適用している
+   * 変換(デフォルト: X軸180°回転)と同じ行列を適用して表示座標に合わせる。
+   */
+  colmapPoseToViewpoint({ qw, qx, qy, qz, tx, ty, tz, name }) {
+    const qInv = new THREE.Quaternion(qx, qy, qz, qw).invert();
+    const center = new THREE.Vector3(tx, ty, tz).applyQuaternion(qInv).negate();
+    const dir = new THREE.Vector3(0, 0, 1).applyQuaternion(qInv);
+    const m = this.mesh
+      ? this.mesh.matrixWorld
+      : new THREE.Matrix4().makeRotationX(Math.PI);
+    const pos = center.clone().applyMatrix4(m);
+    const target = center.clone().add(dir).applyMatrix4(m);
+    const round = (v) => Math.round(v * 1000) / 1000;
+    return {
+      name,
+      position: [round(pos.x), round(pos.y), round(pos.z)],
+      target: [round(target.x), round(target.y), round(target.z)],
+    };
+  }
+
   /** 現在のカメラ姿勢を scenes.json の camera フィールド形式で返す */
   captureCameraPose() {
     const round = (v) => Math.round(v * 1000) / 1000;

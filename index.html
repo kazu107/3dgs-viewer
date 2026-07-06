@@ -151,6 +151,18 @@
             <span>視点(カメラ位置)</span>
             <button type="button" class="mini-btn" id="upload-capture">+ 現在の視点を追加</button>
           </div>
+          <div class="upload-pose-row">
+            <span>COLMAPカメラから</span>
+            <button type="button" class="mini-btn" id="colmap-import">images.txt を読み込む</button>
+            <input type="file" id="colmap-file" accept=".txt" hidden />
+          </div>
+          <div id="colmap-nav" class="colmap-nav hidden">
+            <button type="button" class="mini-btn" id="colmap-prev" title="前のカメラ">◀</button>
+            <span class="colmap-info" id="colmap-info">1 / 1</span>
+            <button type="button" class="mini-btn" id="colmap-next" title="次のカメラ">▶</button>
+            <span class="colmap-name" id="colmap-name"></span>
+            <button type="button" class="mini-btn accent" id="colmap-add">視点に追加</button>
+          </div>
           <div id="upload-viewpoints" class="viewpoint-list"></div>
           <div class="upload-pose-value" id="upload-pose-hint">
             最初の視点が開始位置になります。未追加の場合はアップロード時の視点を使います。

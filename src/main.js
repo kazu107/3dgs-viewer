@@ -1,6 +1,7 @@
 import "./style.css";
 import { Viewer } from "./viewer.js";
 import { fetchScenes, resolveSceneUrl } from "./api.js";
+import { parseColmapImagesText } from "./colmap.js";
 
 const $ = (id) => document.getElementById(id);
 
@@ -263,10 +264,12 @@ async function switchVariant(index) {
   await loadScene(state.current, { variant: index, keepCamera: true });
 }
 
-// 現在のシーンの視点リスト(ローカルプレビュー中は記録途中のものを表示)
+// 現在のシーンの視点リスト。ローカルプレビュー中は記録途中のものを表示し、
+// 表示中シーンに視点がない場合もスタジオで記録中の視点をバーに出す
 function currentViewpoints() {
   if (state.current?.local) return upload.viewpoints;
-  return state.current?.viewpoints || [];
+  if (state.current?.viewpoints?.length) return state.current.viewpoints;
+  return state.uploadEnabled ? upload.viewpoints : [];
 }
 
 // 画面下部の表示データ・視点切替バーを描画
@@ -479,6 +482,11 @@ $("upload-file-variant").addEventListener("change", (e) => {
 
 // ファイルを表示データとして追加(1つ目=3DGS、2つ目以降=点群などのバリアント)
 async function addLocalFile(file) {
+  // COLMAPのimages.txtは視点インポートとして扱う
+  if (file.name.toLowerCase().endsWith(".txt")) {
+    importColmapFile(file);
+    return;
+  }
   if (!SPLAT_EXTS.some((ext) => file.name.toLowerCase().endsWith(ext))) {
     toast("対応していないファイル形式です (.spz / .ply / .splat / .ksplat / .sog / .rad)", {
       error: true,
@@ -619,12 +627,84 @@ const reloadPreview = () => {
 $("upload-lod").addEventListener("change", reloadPreview);
 $("upload-ext").addEventListener("change", reloadPreview);
 
-$("upload-capture").addEventListener("click", () => {
-  const pose = viewer.captureCameraPose();
-  upload.viewpoints.push({ name: `視点${upload.viewpoints.length + 1}`, ...pose });
+// サーバ側のscenes.json検証と同じ上限
+const MAX_VIEWPOINTS = 20;
+
+function addViewpoint(vp) {
+  if (upload.viewpoints.length >= MAX_VIEWPOINTS) {
+    toast(`視点は最大${MAX_VIEWPOINTS}個までです`, { error: true });
+    return false;
+  }
+  upload.viewpoints.push(vp);
   renderUploadViewpoints();
   renderSceneControls();
-  toast(`視点${upload.viewpoints.length}を追加しました(下のバーで確認できます)`);
+  return true;
+}
+
+$("upload-capture").addEventListener("click", () => {
+  const pose = viewer.captureCameraPose();
+  if (addViewpoint({ name: `視点${upload.viewpoints.length + 1}`, ...pose })) {
+    toast(`視点${upload.viewpoints.length}を追加しました(下のバーで確認できます)`);
+  }
+});
+
+// ---------- COLMAP images.txt からの視点インポート ----------
+
+const colmap = { poses: [], index: 0 };
+
+$("colmap-import").addEventListener("click", () => $("colmap-file").click());
+$("colmap-file").addEventListener("change", (e) => {
+  const file = e.target.files?.[0];
+  if (file) importColmapFile(file);
+  e.target.value = "";
+});
+
+async function importColmapFile(file) {
+  try {
+    const text = await file.text();
+    const poses = parseColmapImagesText(text);
+    if (poses.length === 0) {
+      toast("カメラポーズを読み取れませんでした。COLMAPのimages.txt(ASCII)を指定してください", {
+        error: true,
+        duration: 6000,
+      });
+      return;
+    }
+    colmap.poses = poses;
+    colmap.index = 0;
+    $("colmap-nav").classList.remove("hidden");
+    setPanel("panel-upload", true);
+    toast(`${poses.length}台のカメラを読み込みました。◀ ▶ で巡回して視点に追加できます`, {
+      duration: 6000,
+    });
+    jumpToColmapPose(0);
+  } catch (err) {
+    console.error(err);
+    toast("images.txt の読み込みに失敗しました", { error: true });
+  }
+}
+
+// i番目のCOLMAPカメラへ飛行(変換はシーンの現在の変換行列で行う)
+function jumpToColmapPose(i) {
+  if (colmap.poses.length === 0) return;
+  colmap.index = ((i % colmap.poses.length) + colmap.poses.length) % colmap.poses.length;
+  const pose = colmap.poses[colmap.index];
+  $("colmap-info").textContent = `${colmap.index + 1} / ${colmap.poses.length}`;
+  $("colmap-name").textContent = pose.name;
+  $("colmap-name").title = pose.name;
+  viewer.applyViewpoint(viewer.colmapPoseToViewpoint(pose), 600);
+}
+
+$("colmap-prev").addEventListener("click", () => jumpToColmapPose(colmap.index - 1));
+$("colmap-next").addEventListener("click", () => jumpToColmapPose(colmap.index + 1));
+$("colmap-add").addEventListener("click", () => {
+  const pose = colmap.poses[colmap.index];
+  if (!pose) return;
+  const vp = viewer.colmapPoseToViewpoint(pose);
+  vp.name = stemOf(pose.name) || `視点${upload.viewpoints.length + 1}`;
+  if (addViewpoint(vp)) {
+    toast(`「${vp.name}」を視点に追加しました`);
+  }
 });
 
 function renderUploadViewpoints() {
