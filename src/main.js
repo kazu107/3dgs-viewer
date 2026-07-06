@@ -28,8 +28,12 @@ function toast(message, { error = false, duration = 3500 } = {}) {
 
 // ---------- パネル ----------
 
-const panels = ["panel-scenes", "panel-settings"];
-const panelButtons = { "panel-scenes": "btn-scenes", "panel-settings": "btn-settings" };
+const panels = ["panel-scenes", "panel-settings", "panel-upload"];
+const panelButtons = {
+  "panel-scenes": "btn-scenes",
+  "panel-settings": "btn-settings",
+  "panel-upload": "btn-upload",
+};
 
 function setPanel(id, open) {
   for (const p of panels) {
@@ -47,6 +51,7 @@ function togglePanel(id) {
 
 $("btn-scenes").addEventListener("click", () => togglePanel("panel-scenes"));
 $("btn-settings").addEventListener("click", () => togglePanel("panel-settings"));
+$("btn-upload").addEventListener("click", () => togglePanel("panel-upload"));
 document.querySelectorAll(".panel-close").forEach((btn) => {
   btn.addEventListener("click", () => setPanel(btn.dataset.close, false));
 });
@@ -310,6 +315,7 @@ viewer.onStats = ({ fps, splats, position, speed }) => {
     splats >= 1e6 ? `${(splats / 1e6).toFixed(1)}M` : splats > 0 ? splats.toLocaleString() : "--";
   $("hud-pos").textContent = `${position.x.toFixed(1)}, ${position.y.toFixed(1)}, ${position.z.toFixed(1)}`;
   $("hud-speed").textContent = speed.toFixed(1);
+  $("upload-speed-value").textContent = `現在の設定 (${speed.toFixed(1)})`;
 };
 
 viewer.onContextLost = () => {
@@ -367,12 +373,217 @@ document.addEventListener("keydown", (e) => {
       break;
     case "Escape":
       setHelp(false);
-      setPanel("panel-scenes", false);
+      for (const p of panels) setPanel(p, false);
       break;
   }
 });
 
+// ---------- アップロードスタジオ ----------
+
+const upload = { file: null, pose: null };
+const SPLAT_EXTS = [".spz", ".ply", ".splat", ".ksplat", ".sog", ".rad", ".zip"];
+
+const stemOf = (name) => name.replace(/\.[^.]+$/, "");
+
+$("upload-drop").addEventListener("click", () => $("upload-file").click());
+$("upload-file").addEventListener("change", (e) => {
+  const file = e.target.files?.[0];
+  if (file) prepareLocalFile(file);
+  e.target.value = "";
+});
+
+async function prepareLocalFile(file) {
+  if (!SPLAT_EXTS.some((ext) => file.name.toLowerCase().endsWith(ext))) {
+    toast("対応していないファイル形式です (.spz / .ply / .splat / .ksplat / .sog / .rad)", {
+      error: true,
+    });
+    return;
+  }
+  upload.file = file;
+  upload.pose = null;
+  $("upload-form").classList.remove("hidden");
+  $("upload-file-info").textContent = `${file.name} (${formatBytes(file.size)})`;
+  if (!$("upload-name").value.trim()) $("upload-name").value = stemOf(file.name);
+  $("upload-pose-value").textContent = "未記録 — アップロード時の視点を使います";
+  $("upload-pose-value").classList.remove("captured");
+  $("upload-status").textContent = "";
+  $("upload-status").classList.remove("error");
+  setPanel("panel-upload", true);
+  await previewLocalFile();
+}
+
+function currentUploadOptions() {
+  return {
+    lod: $("upload-lod").checked,
+    extSplats: $("upload-ext").checked || undefined,
+  };
+}
+
+// ローカルファイルをビューアでプレビュー(サーバを経由しない)
+async function previewLocalFile() {
+  if (!upload.file) return;
+  const file = upload.file;
+  const token = ++loadSeq;
+  showLoading(`「${file.name}」をプレビュー中...`);
+  try {
+    const buf = await file.arrayBuffer();
+    if (token !== loadSeq) return;
+    const scene = {
+      id: `local:${file.name}`,
+      name: stemOf(file.name),
+      local: true,
+      options: currentUploadOptions(),
+    };
+    const mesh = await viewer.loadSceneFromBytes(scene, buf, file.name, {
+      onProgress: (e) => {
+        if (token === loadSeq) updateLoading(e);
+      },
+    });
+    if (token !== loadSeq || !mesh) return;
+    state.current = scene;
+    $("scene-title").textContent = `${scene.name}(ローカルプレビュー)`;
+    $("scene-title").title = file.name;
+    syncSpeedSlider();
+    renderSceneList();
+    hideLoading();
+    toast("プレビュー中 — 視点と速度を決めてアップロードしてください", { duration: 5000 });
+  } catch (err) {
+    if (token !== loadSeq) return;
+    console.error(err);
+    showLoadError(err.message || String(err), previewLocalFile);
+  }
+}
+
+// LoD/extSplatsの切替はプレビューの構築方法に影響するため再読み込み
+$("upload-lod").addEventListener("change", previewLocalFile);
+$("upload-ext").addEventListener("change", previewLocalFile);
+
+$("upload-capture").addEventListener("click", () => {
+  if (!state.current) return;
+  upload.pose = viewer.captureCameraPose();
+  const p = upload.pose.position.map((v) => v.toFixed(1)).join(", ");
+  $("upload-pose-value").textContent = `位置 [${p}] / FOV ${upload.pose.fov}° を記録しました`;
+  $("upload-pose-value").classList.add("captured");
+  toast("開始位置を記録しました");
+});
+
+function uploadFileWithProgress(file, onProgress) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("PUT", `/api/upload?filename=${encodeURIComponent(file.name)}`);
+    xhr.responseType = "json";
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable) onProgress((e.loaded / e.total) * 100, e.loaded, e.total);
+    };
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300 && xhr.response?.key) {
+        resolve(xhr.response);
+      } else {
+        reject(new Error(xhr.response?.error || `アップロードに失敗しました (${xhr.status})`));
+      }
+    };
+    xhr.onerror = () => reject(new Error("ネットワークエラーでアップロードに失敗しました"));
+    xhr.send(file);
+  });
+}
+
+$("upload-submit").addEventListener("click", async () => {
+  if (!upload.file) return;
+  const name = $("upload-name").value.trim();
+  if (!name) {
+    toast("シーン名を入力してください", { error: true });
+    $("upload-name").focus();
+    return;
+  }
+  const btn = $("upload-submit");
+  const statusEl = $("upload-status");
+  btn.disabled = true;
+  statusEl.classList.remove("error");
+  $("upload-progress-track").classList.remove("hidden");
+  $("upload-progress").style.width = "0%";
+  try {
+    const { key } = await uploadFileWithProgress(upload.file, (pct, loaded, total) => {
+      $("upload-progress").style.width = `${pct}%`;
+      statusEl.textContent = `アップロード中... ${formatBytes(loaded)} / ${formatBytes(total)} (${pct.toFixed(0)}%)`;
+    });
+    statusEl.textContent = "シーン情報を保存中...";
+    const entry = {
+      id: key,
+      name,
+      description: $("upload-desc").value.trim(),
+      key,
+      options: currentUploadOptions(),
+      // プレビューと同じ向きで表示されるように明示的に保存
+      transform: { rotationDeg: [180, 0, 0] },
+      camera: upload.pose ?? viewer.captureCameraPose(),
+      moveSpeed: Math.round(viewer.controls.fpsMovement.moveSpeed * 100) / 100,
+    };
+    const res = await fetch("/api/manifest", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(entry),
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(body.error || `シーン情報の保存に失敗しました (${res.status})`);
+    }
+    statusEl.textContent = "完了しました ✓";
+    toast(`「${name}」をR2にアップロードしました`);
+    await refreshScenes();
+    const uploaded = state.scenes.find((s) => s.key === key);
+    if (uploaded) {
+      state.current = uploaded;
+      renderSceneList();
+      history.replaceState(null, "", `#scene=${encodeURIComponent(uploaded.id)}`);
+      $("scene-title").textContent = uploaded.name;
+    }
+  } catch (err) {
+    console.error(err);
+    statusEl.classList.add("error");
+    statusEl.textContent = err.message || String(err);
+    toast("アップロードに失敗しました", { error: true, duration: 6000 });
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+// ウィンドウ全体へのドラッグ&ドロップ
+let dragDepth = 0;
+window.addEventListener("dragenter", (e) => {
+  if (!state.uploadEnabled || !e.dataTransfer?.types?.includes("Files")) return;
+  e.preventDefault();
+  dragDepth += 1;
+  $("drop-overlay").classList.remove("hidden");
+});
+window.addEventListener("dragover", (e) => {
+  if (!state.uploadEnabled) return;
+  e.preventDefault();
+});
+window.addEventListener("dragleave", () => {
+  if (!state.uploadEnabled) return;
+  dragDepth = Math.max(0, dragDepth - 1);
+  if (dragDepth === 0) $("drop-overlay").classList.add("hidden");
+});
+window.addEventListener("drop", (e) => {
+  if (!state.uploadEnabled) return;
+  e.preventDefault();
+  dragDepth = 0;
+  $("drop-overlay").classList.add("hidden");
+  const file = e.dataTransfer?.files?.[0];
+  if (file) prepareLocalFile(file);
+});
+
 // ---------- 起動 ----------
+
+async function refreshScenes() {
+  const data = await fetchScenes();
+  state.scenes = data.scenes || [];
+  state.r2 = Boolean(data.r2);
+  state.empty = Boolean(data.empty);
+  state.uploadEnabled = Boolean(data.uploadEnabled);
+  $("btn-upload").classList.toggle("hidden", !state.uploadEnabled);
+  renderSceneList();
+}
 
 async function boot() {
   // 初回訪問時はヘルプを表示
@@ -382,11 +593,12 @@ async function boot() {
   }
 
   try {
-    const data = await fetchScenes();
-    state.scenes = data.scenes || [];
-    state.r2 = Boolean(data.r2);
-    state.empty = Boolean(data.empty);
-    renderSceneList();
+    await refreshScenes();
+
+    if (state.uploadEnabled) {
+      setPanel("panel-upload", true);
+      toast("アップロードスタジオ: ファイルを選択してプレビューできます", { duration: 6000 });
+    }
 
     if (state.scenes.length === 0) {
       toast("表示できるシーンがありません", { error: true, duration: 8000 });

@@ -6,8 +6,10 @@ import {
   S3Client,
   ListObjectsV2Command,
   GetObjectCommand,
+  PutObjectCommand,
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
+import { Upload } from "@aws-sdk/lib-storage";
 
 // ローカル開発用に .env があれば読み込む(Heroku本番ではconfig varsを使用)
 try {
@@ -30,6 +32,10 @@ const R2_PREFIX = normalizePrefix(process.env.R2_PREFIX || "");
 // 設定時はpresigned URLの代わりに公開URLを返す(チャンク分割.radはこちらが必須)
 const R2_PUBLIC_BASE_URL = (process.env.R2_PUBLIC_BASE_URL || "").replace(/\/+$/, "");
 const URL_EXPIRES_SECONDS = clampInt(process.env.R2_URL_EXPIRES, 60, 604800, 3600);
+// アップロードスタジオ(ローカル起動時のみ)。upload-studio.bat が --upload で起動する。
+// Heroku本番では有効にしないこと — 認証なしの書き込みエンドポイントが公開される
+const ENABLE_UPLOAD =
+  process.env.ENABLE_UPLOAD === "1" || process.argv.includes("--upload");
 
 const r2Configured = Boolean(
   R2_ACCOUNT_ID && R2_ACCESS_KEY_ID && R2_SECRET_ACCESS_KEY && R2_BUCKET
@@ -197,7 +203,7 @@ app.get("/api/health", (_req, res) => {
 
 app.get("/api/scenes", async (_req, res) => {
   if (!r2Configured) {
-    return res.json({ r2: false, scenes: DEMO_SCENES });
+    return res.json({ r2: false, uploadEnabled: ENABLE_UPLOAD, scenes: DEMO_SCENES });
   }
   try {
     if (!sceneListCache.data || Date.now() - sceneListCache.at > SCENE_CACHE_TTL_MS) {
@@ -206,6 +212,7 @@ app.get("/api/scenes", async (_req, res) => {
     const scenes = sceneListCache.data;
     res.json({
       r2: true,
+      uploadEnabled: ENABLE_UPLOAD,
       scenes: scenes.length > 0 ? scenes : DEMO_SCENES,
       empty: scenes.length === 0,
     });
@@ -252,6 +259,100 @@ app.get("/api/scenes/url", async (req, res) => {
   } catch (err) {
     console.error("URL発行に失敗:", err);
     res.status(502).json({ error: "URLの発行に失敗しました" });
+  }
+});
+
+// ---------- アップロードスタジオ用API (ENABLE_UPLOAD=1 のローカル起動時のみ) ----------
+
+function requireUpload(req, res, next) {
+  if (!ENABLE_UPLOAD) {
+    return res.status(403).json({ error: "アップロードはこのサーバでは無効です" });
+  }
+  if (!r2Configured) {
+    return res.status(400).json({ error: "R2が設定されていません (.envを確認してください)" });
+  }
+  next();
+}
+
+// ファイル名をR2キー用に安全化(パス除去・危険文字置換)
+function sanitizeFileName(name) {
+  const base = String(name).replace(/^.*[\\/]/, "").normalize("NFC");
+  const safe = base.replace(/[<>:"|?*#%\s-]/g, "_").replace(/\.\.+/g, ".");
+  return safe.slice(0, 200);
+}
+
+// スプラットファイル本体をストリーミングでR2へ(マルチパート、リクエスト本文=ファイル)
+app.put("/api/upload", requireUpload, async (req, res) => {
+  const fileName = sanitizeFileName(req.query.filename || "");
+  if (!fileName || !hasSplatExtension(fileName)) {
+    return res.status(400).json({ error: "対応していないファイル形式です" });
+  }
+  const key = `${R2_PREFIX}${fileName}`;
+  if (!isValidSceneKey(key)) {
+    return res.status(400).json({ error: "不正なファイル名です" });
+  }
+  try {
+    const upload = new Upload({
+      client: s3,
+      params: {
+        Bucket: R2_BUCKET,
+        Key: key,
+        Body: req,
+        ContentType: "application/octet-stream",
+      },
+      queueSize: 3,
+      partSize: 64 * 1024 * 1024,
+    });
+    await upload.done();
+    sceneListCache = { at: 0, data: null };
+    presignCache.delete(key);
+    console.log(`アップロード完了: ${key}`);
+    res.json({ key });
+  } catch (err) {
+    console.error("アップロードに失敗:", err);
+    res.status(502).json({ error: `アップロードに失敗しました: ${err.message}` });
+  }
+});
+
+// scenes.json マニフェストのエントリを追加/更新
+app.post("/api/manifest", requireUpload, express.json({ limit: "64kb" }), async (req, res) => {
+  const entry = req.body || {};
+  if (!isValidSceneKey(entry.key)) {
+    return res.status(400).json({ error: "不正なキーです" });
+  }
+  if (typeof entry.name !== "string" || !entry.name.trim()) {
+    return res.status(400).json({ error: "シーン名を入力してください" });
+  }
+  // 既知フィールドだけを保存する
+  const clean = {
+    id: String(entry.id || entry.key).slice(0, 200),
+    name: entry.name.trim().slice(0, 100),
+    description: String(entry.description || "").slice(0, 500),
+    key: entry.key,
+  };
+  if (entry.options && typeof entry.options === "object") clean.options = entry.options;
+  if (entry.transform && typeof entry.transform === "object") clean.transform = entry.transform;
+  if (entry.camera && typeof entry.camera === "object") clean.camera = entry.camera;
+  if (Number.isFinite(entry.moveSpeed)) clean.moveSpeed = entry.moveSpeed;
+
+  try {
+    const manifest = (await fetchManifest()) ?? [];
+    const scenes = manifest.filter((s) => s && s.key !== clean.key);
+    scenes.push(clean);
+    await s3.send(
+      new PutObjectCommand({
+        Bucket: R2_BUCKET,
+        Key: MANIFEST_KEY,
+        Body: JSON.stringify({ scenes }, null, 2),
+        ContentType: "application/json",
+      })
+    );
+    sceneListCache = { at: 0, data: null };
+    console.log(`マニフェスト更新: ${clean.key} (${clean.name})`);
+    res.json({ ok: true, scene: clean });
+  } catch (err) {
+    console.error("マニフェスト更新に失敗:", err);
+    res.status(502).json({ error: `マニフェストの更新に失敗しました: ${err.message}` });
   }
 });
 

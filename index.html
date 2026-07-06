@@ -25,6 +25,9 @@
       <button class="icon-btn" id="btn-settings" title="設定" aria-label="設定">
         <svg viewBox="0 0 24 24"><path d="M12 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7zm7.4-2.6c.04-.3.06-.6.06-.9s-.02-.6-.06-.9l2.1-1.65a.5.5 0 0 0 .12-.64l-2-3.46a.5.5 0 0 0-.6-.22l-2.5 1a7.6 7.6 0 0 0-1.55-.9l-.38-2.65A.5.5 0 0 0 14.1 2h-4a.5.5 0 0 0-.5.42l-.38 2.65c-.55.23-1.07.53-1.55.9l-2.5-1a.5.5 0 0 0-.6.22l-2 3.46a.5.5 0 0 0 .12.64L4.8 11c-.04.3-.06.6-.06.9s.02.6.06.9l-2.1 1.65a.5.5 0 0 0-.12.64l2 3.46c.13.22.39.31.6.22l2.5-1c.48.37 1 .67 1.55.9l.38 2.65a.5.5 0 0 0 .5.42h4a.5.5 0 0 0 .5-.42l.38-2.65c.55-.23 1.07-.53 1.55-.9l2.5 1c.21.09.47 0 .6-.22l2-3.46a.5.5 0 0 0-.12-.64l-2.1-1.65z"/></svg>
       </button>
+      <button class="icon-btn hidden" id="btn-upload" title="アップロードスタジオ" aria-label="アップロードスタジオ">
+        <svg viewBox="0 0 24 24"><path d="M12 3l5 5h-3v6h-4V8H7l5-5zM5 18h14v2H5v-2z"/></svg>
+      </button>
       <button class="icon-btn" id="btn-screenshot" title="スクリーンショット (P)" aria-label="スクリーンショット">
         <svg viewBox="0 0 24 24"><path d="M9 3l-1.8 2H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-3.2L15 3H9zm3 15a5 5 0 1 1 0-10 5 5 0 0 1 0 10zm0-2.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5z"/></svg>
       </button>
@@ -105,6 +108,67 @@
       </section>
     </div>
   </aside>
+
+  <!-- アップロードスタジオパネル -->
+  <aside class="panel" id="panel-upload" aria-hidden="true">
+    <div class="panel-header">
+      <h2>アップロードスタジオ</h2>
+      <button class="icon-btn small panel-close" data-close="panel-upload" aria-label="閉じる">
+        <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" stroke-width="2.2" stroke-linecap="round"/></svg>
+      </button>
+    </div>
+    <div class="panel-body">
+      <input type="file" id="upload-file" accept=".spz,.ply,.splat,.ksplat,.sog,.rad,.zip" hidden />
+      <button type="button" class="upload-drop" id="upload-drop">
+        <strong>ファイルを選択</strong>
+        <span>またはウィンドウにドラッグ&ドロップ</span>
+        <span class="upload-drop-note">.spz / .ply / .splat / .ksplat / .sog / .rad</span>
+      </button>
+
+      <div id="upload-form" class="hidden">
+        <div class="upload-file-info" id="upload-file-info"></div>
+        <label class="setting">
+          <span class="setting-label">シーン名</span>
+          <input type="text" id="upload-name" class="text-input" maxlength="100" placeholder="例: 都市スキャン" />
+        </label>
+        <label class="setting">
+          <span class="setting-label">説明(任意)</span>
+          <textarea id="upload-desc" class="text-input" rows="2" maxlength="500" placeholder="シーンの説明"></textarea>
+        </label>
+        <label class="setting setting-row">
+          <span class="setting-label">LoD 構築(広域シーン向け)</span>
+          <input type="checkbox" id="upload-lod" checked />
+        </label>
+        <label class="setting setting-row">
+          <span class="setting-label">高精度座標 (extSplats)</span>
+          <input type="checkbox" id="upload-ext" />
+        </label>
+
+        <div class="upload-pose">
+          <div class="upload-pose-row">
+            <span>開始位置・向き</span>
+            <button type="button" class="mini-btn" id="upload-capture">現在の視点を記録</button>
+          </div>
+          <div class="upload-pose-value" id="upload-pose-value">未記録 — アップロード時の視点を使います</div>
+          <div class="upload-pose-row">
+            <span>初期移動速度</span>
+            <span class="upload-pose-note" id="upload-speed-value">現在の設定を使用</span>
+          </div>
+        </div>
+
+        <button type="button" class="primary-btn" id="upload-submit">R2 にアップロード</button>
+        <div class="progress-track hidden" id="upload-progress-track">
+          <div class="progress-fill" id="upload-progress"></div>
+        </div>
+        <div class="upload-status" id="upload-status"></div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- ドラッグ&ドロップの案内 -->
+  <div id="drop-overlay" class="hidden">
+    <div class="drop-overlay-card">ここにドロップしてプレビュー</div>
+  </div>
 
   <!-- HUD -->
   <div id="hud">

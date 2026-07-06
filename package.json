@@ -16,6 +16,7 @@
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1079.0",
+    "@aws-sdk/lib-storage": "^3.1079.0",
     "@aws-sdk/s3-request-presigner": "^3.1079.0",
     "compression": "^1.7.5",
     "express": "^4.21.2"

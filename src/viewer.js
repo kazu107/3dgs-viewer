@@ -136,14 +136,25 @@ export class Viewer {
    * @param {string} url スプラットファイルのURL
    */
   async loadScene(sceneInfo, url, { onProgress } = {}) {
+    return this.#load(sceneInfo, { url }, onProgress);
+  }
+
+  /** ローカルファイル(アップロードスタジオ)からシーンをロードする */
+  async loadSceneFromBytes(sceneInfo, fileBytes, fileName, { onProgress } = {}) {
+    return this.#load(sceneInfo, { fileBytes, fileName }, onProgress);
+  }
+
+  async #load(sceneInfo, source, onProgress) {
     const id = ++this.loadId;
     this.#disposeCurrent();
 
     const options = sceneInfo.options || {};
-    const isRad = /\.rad$/i.test(sceneInfo.key || url.split("?")[0]);
+    const keyName =
+      sceneInfo.key || source.fileName || (source.url ? source.url.split("?")[0] : "");
+    const isRad = /\.rad$/i.test(keyName);
 
     const mesh = new SplatMesh({
-      url,
+      ...source,
       onProgress,
       // 広域シーン向け: .rad以外はデフォルトでランタイムLoDツリーを構築
       lod: options.lod ?? (isRad ? undefined : true),
@@ -171,6 +182,22 @@ export class Viewer {
 
     this.#setupCamera(sceneInfo);
     return mesh;
+  }
+
+  /** 現在のカメラ姿勢を scenes.json の camera フィールド形式で返す */
+  captureCameraPose() {
+    const round = (v) => Math.round(v * 1000) / 1000;
+    const pos = this.camera.position;
+    const dir = new THREE.Vector3();
+    this.camera.getWorldDirection(dir);
+    const target = pos
+      .clone()
+      .add(dir.multiplyScalar(Math.max(1, this.controls.fpsMovement.moveSpeed * 2)));
+    return {
+      position: [round(pos.x), round(pos.y), round(pos.z)],
+      target: [round(target.x), round(target.y), round(target.z)],
+      fov: Math.round(this.camera.fov),
+    };
   }
 
   #disposeCurrent() {
