@@ -10,12 +10,13 @@ export async function fetchScenes() {
 }
 
 /**
- * シーンのダウンロードURLを解決する。
+ * シーン(またはバリアント)のダウンロードURLを解決する。
  * デモシーンは直接URL、R2のシーンはpresigned URLをサーバから取得。
+ * @param {{url?: string, key?: string}} source
  */
-export async function resolveSceneUrl(scene) {
-  if (scene.url) return scene.url;
-  const res = await fetch(`/api/scenes/url?key=${encodeURIComponent(scene.key)}`);
+export async function resolveSceneUrl(source) {
+  if (source.url) return source.url;
+  const res = await fetch(`/api/scenes/url?key=${encodeURIComponent(source.key)}`);
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     throw new Error(body.error || `シーンURLの取得に失敗しました (${res.status})`);

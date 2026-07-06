@@ -119,14 +119,16 @@
     </div>
     <div class="panel-body">
       <input type="file" id="upload-file" accept=".spz,.ply,.splat,.ksplat,.sog,.rad,.zip" hidden />
+      <input type="file" id="upload-file-variant" accept=".spz,.ply,.splat,.ksplat,.sog,.rad,.zip" hidden />
       <button type="button" class="upload-drop" id="upload-drop">
         <strong>ファイルを選択</strong>
         <span>またはウィンドウにドラッグ&ドロップ</span>
-        <span class="upload-drop-note">.spz / .ply / .splat / .ksplat / .sog / .rad</span>
+        <span class="upload-drop-note">3DGS・点群どちらもOK: .spz / .ply / .splat / .ksplat / .sog / .rad</span>
       </button>
 
       <div id="upload-form" class="hidden">
-        <div class="upload-file-info" id="upload-file-info"></div>
+        <div id="upload-variants" class="variant-list"></div>
+        <button type="button" class="mini-btn add-variant-btn" id="upload-add-variant">+ 点群など別の表示データを追加</button>
         <label class="setting">
           <span class="setting-label">シーン名</span>
           <input type="text" id="upload-name" class="text-input" maxlength="100" placeholder="例: 都市スキャン" />
@@ -146,10 +148,13 @@
 
         <div class="upload-pose">
           <div class="upload-pose-row">
-            <span>開始位置・向き</span>
-            <button type="button" class="mini-btn" id="upload-capture">現在の視点を記録</button>
+            <span>視点(カメラ位置)</span>
+            <button type="button" class="mini-btn" id="upload-capture">+ 現在の視点を追加</button>
           </div>
-          <div class="upload-pose-value" id="upload-pose-value">未記録 — アップロード時の視点を使います</div>
+          <div id="upload-viewpoints" class="viewpoint-list"></div>
+          <div class="upload-pose-value" id="upload-pose-hint">
+            最初の視点が開始位置になります。未追加の場合はアップロード時の視点を使います。
+          </div>
           <div class="upload-pose-row">
             <span>初期移動速度</span>
             <span class="upload-pose-note" id="upload-speed-value">現在の設定を使用</span>
@@ -168,6 +173,12 @@
   <!-- ドラッグ&ドロップの案内 -->
   <div id="drop-overlay" class="hidden">
     <div class="drop-overlay-card">ここにドロップしてプレビュー</div>
+  </div>
+
+  <!-- 表示データ・視点の切替バー -->
+  <div id="scene-controls">
+    <div id="variant-switch" class="pill-group hidden"></div>
+    <div id="viewpoint-bar" class="pill-group hidden"></div>
   </div>
 
   <!-- HUD -->
@@ -205,6 +216,7 @@
           <tr><td><kbd>E</kbd> / <kbd>Q</kbd></td><td>上昇 / 下降</td></tr>
           <tr><td><kbd>Shift</kbd> 押しながら</td><td>高速移動 (5倍)</td></tr>
           <tr><td><kbd>Ctrl</kbd> 押しながら</td><td>低速移動 (0.2倍)</td></tr>
+          <tr><td><kbd>1</kbd> 〜 <kbd>9</kbd></td><td>登録された視点へ移動</td></tr>
           <tr><td><kbd>R</kbd></td><td>視点をリセット</td></tr>
           <tr><td><kbd>F</kbd></td><td>フルスクリーン</td></tr>
           <tr><td><kbd>P</kbd></td><td>スクリーンショット保存</td></tr>

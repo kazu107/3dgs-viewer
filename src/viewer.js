@@ -135,16 +135,16 @@ export class Viewer {
    * @param {object} sceneInfo /api/scenes のシーンエントリ
    * @param {string} url スプラットファイルのURL
    */
-  async loadScene(sceneInfo, url, { onProgress } = {}) {
-    return this.#load(sceneInfo, { url }, onProgress);
+  async loadScene(sceneInfo, url, { onProgress, keepCamera = false } = {}) {
+    return this.#load(sceneInfo, { url }, onProgress, keepCamera);
   }
 
   /** ローカルファイル(アップロードスタジオ)からシーンをロードする */
-  async loadSceneFromBytes(sceneInfo, fileBytes, fileName, { onProgress } = {}) {
-    return this.#load(sceneInfo, { fileBytes, fileName }, onProgress);
+  async loadSceneFromBytes(sceneInfo, fileBytes, fileName, { onProgress, keepCamera = false } = {}) {
+    return this.#load(sceneInfo, { fileBytes, fileName }, onProgress, keepCamera);
   }
 
-  async #load(sceneInfo, source, onProgress) {
+  async #load(sceneInfo, source, onProgress, keepCamera = false) {
     const id = ++this.loadId;
     this.#disposeCurrent();
 
@@ -180,8 +180,26 @@ export class Viewer {
     this.mesh = mesh;
     this.scene.add(mesh);
 
-    this.#setupCamera(sceneInfo);
+    // 表示データ切替時はカメラを動かさない
+    if (!keepCamera) this.#setupCamera(sceneInfo);
     return mesh;
+  }
+
+  /** 名前付き視点へスムーズに移動する ({position, target?, fov?}) */
+  applyViewpoint(vp, durationMs = 900) {
+    if (!Array.isArray(vp?.position) || vp.position.length !== 3) return;
+    const toPos = new THREE.Vector3().fromArray(vp.position);
+    let toQuat = this.camera.quaternion.clone();
+    if (Array.isArray(vp.target) && vp.target.length === 3) {
+      const target = new THREE.Vector3().fromArray(vp.target);
+      const m = new THREE.Matrix4().lookAt(toPos, target, this.camera.up);
+      toQuat = new THREE.Quaternion().setFromRotationMatrix(m);
+    }
+    if (Number.isFinite(vp.fov)) {
+      this.camera.fov = vp.fov;
+      this.camera.updateProjectionMatrix();
+    }
+    this.#startFlight(toPos, toQuat, durationMs);
   }
 
   /** 現在のカメラ姿勢を scenes.json の camera フィールド形式で返す */

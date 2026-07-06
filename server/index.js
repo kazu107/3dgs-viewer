@@ -159,6 +159,11 @@ async function buildSceneList() {
   for (const entry of manifest ?? []) {
     if (!entry || typeof entry.key !== "string" || !isValidSceneKey(entry.key)) continue;
     usedKeys.add(entry.key);
+    // variantsに含まれるキーも自動検出の重複対象から除外する
+    const variants = Array.isArray(entry.variants)
+      ? entry.variants.filter((v) => v && isValidSceneKey(v.key))
+      : null;
+    for (const v of variants ?? []) usedKeys.add(v.key);
     scenes.push({
       id: entry.id || entry.key,
       name: entry.name || fileNameToSceneName(entry.key),
@@ -169,6 +174,8 @@ async function buildSceneList() {
       transform: entry.transform || null,
       camera: entry.camera || null,
       moveSpeed: entry.moveSpeed ?? null,
+      variants: variants && variants.length > 0 ? variants : null,
+      viewpoints: Array.isArray(entry.viewpoints) ? entry.viewpoints : null,
     });
   }
 
@@ -334,6 +341,40 @@ app.post("/api/manifest", requireUpload, express.json({ limit: "64kb" }), async 
   if (entry.transform && typeof entry.transform === "object") clean.transform = entry.transform;
   if (entry.camera && typeof entry.camera === "object") clean.camera = entry.camera;
   if (Number.isFinite(entry.moveSpeed)) clean.moveSpeed = entry.moveSpeed;
+
+  // 表示データ(3DGS/点群など)。キーは通常のシーンキーと同じ検証を通す
+  if (Array.isArray(entry.variants)) {
+    const variants = entry.variants
+      .filter((v) => v && typeof v === "object" && isValidSceneKey(v.key))
+      .slice(0, 8)
+      .map((v) => {
+        const out = {
+          name: String(v.name || "").trim().slice(0, 50) || "データ",
+          key: v.key,
+        };
+        if (v.options && typeof v.options === "object") out.options = v.options;
+        return out;
+      });
+    if (variants.length > 0) clean.variants = variants;
+  }
+
+  // 名前付き視点のリスト
+  const isVec3 = (a) => Array.isArray(a) && a.length === 3 && a.every(Number.isFinite);
+  if (Array.isArray(entry.viewpoints)) {
+    const viewpoints = entry.viewpoints
+      .filter((vp) => vp && typeof vp === "object" && isVec3(vp.position))
+      .slice(0, 20)
+      .map((vp, i) => {
+        const out = {
+          name: String(vp.name || "").trim().slice(0, 50) || `視点${i + 1}`,
+          position: vp.position.map((n) => Math.round(n * 1000) / 1000),
+        };
+        if (isVec3(vp.target)) out.target = vp.target.map((n) => Math.round(n * 1000) / 1000);
+        if (Number.isFinite(vp.fov)) out.fov = Math.min(120, Math.max(20, Math.round(vp.fov)));
+        return out;
+      });
+    if (viewpoints.length > 0) clean.viewpoints = viewpoints;
+  }
 
   try {
     const manifest = (await fetchManifest()) ?? [];

@@ -10,6 +10,7 @@ window.__viewer = viewer; // デバッグ用
 const state = {
   scenes: [],
   current: null,
+  variantIndex: 0,
   r2: false,
 };
 
@@ -176,6 +177,8 @@ function renderSceneList() {
     if (fmt) meta.appendChild(badge(fmt, true));
     if (scene.size) meta.appendChild(badge(formatBytes(scene.size)));
     if (scene.options?.lod || fmt === "RAD") meta.appendChild(badge("LoD"));
+    if (scene.variants?.length > 1) meta.appendChild(badge(`${scene.variants.length}データ`));
+    if (scene.viewpoints?.length > 0) meta.appendChild(badge(`視点×${scene.viewpoints.length}`));
     if (scene.demo) meta.appendChild(badge("デモ"));
     card.appendChild(meta);
 
@@ -198,26 +201,40 @@ function badge(text, accent = false) {
 
 let loadSeq = 0;
 
-async function loadScene(scene) {
+// シーンの表示データ一覧(バリアント未定義なら本体キーのみ)
+function sceneVariants(scene) {
+  if (scene.variants?.length) return scene.variants;
+  return [{ name: "3DGS", key: scene.key, url: scene.url, options: scene.options }];
+}
+
+async function loadScene(scene, { variant = 0, keepCamera = false } = {}) {
   if (state.loading === scene.id) return;
   state.loading = scene.id;
   // 最後に開始したロードだけがUIを更新できる(古いロードの進捗・エラー・完了は無視)
   const token = ++loadSeq;
+  const variants = sceneVariants(scene);
+  const variantIndex = Math.min(Math.max(0, variant), variants.length - 1);
+  const v = variants[variantIndex];
   showLoading(`「${scene.name}」を読み込み中...`);
   try {
-    const url = await resolveSceneUrl(scene);
+    const url = await resolveSceneUrl(v.url ? v : { key: v.key });
     if (token !== loadSeq) return;
-    const mesh = await viewer.loadScene(scene, url, {
+    // バリアント側のキー/オプションでロード(transform等はシーン共通)
+    const sceneInfo = { ...scene, key: v.key ?? scene.key, options: v.options ?? scene.options };
+    const mesh = await viewer.loadScene(sceneInfo, url, {
+      keepCamera,
       onProgress: (e) => {
         if (token === loadSeq) updateLoading(e);
       },
     });
     if (token !== loadSeq || !mesh) return; // 別シーンへ切り替え済み
     state.current = scene;
+    state.variantIndex = variantIndex;
     $("scene-title").textContent = scene.name;
     $("scene-title").title = scene.name;
     syncSpeedSlider();
     renderSceneList();
+    renderSceneControls();
     hideLoading();
     const count = viewer.splatCount();
     toast(
@@ -230,10 +247,63 @@ async function loadScene(scene) {
   } catch (err) {
     if (token !== loadSeq) return; // 古いロードのエラーは表示しない
     console.error(err);
-    showLoadError(err.message || String(err), () => loadScene(scene));
+    showLoadError(err.message || String(err), () => loadScene(scene, { variant, keepCamera }));
   } finally {
     if (state.loading === scene.id) state.loading = null;
   }
+}
+
+// 表示データ(3DGS/点群など)をカメラ位置を維持したまま切り替える
+async function switchVariant(index) {
+  if (state.current?.local) {
+    if (index !== upload.previewIndex) await previewLocalVariant(index, { keepCamera: true });
+    return;
+  }
+  if (!state.current || index === state.variantIndex) return;
+  await loadScene(state.current, { variant: index, keepCamera: true });
+}
+
+// 現在のシーンの視点リスト(ローカルプレビュー中は記録途中のものを表示)
+function currentViewpoints() {
+  if (state.current?.local) return upload.viewpoints;
+  return state.current?.viewpoints || [];
+}
+
+// 画面下部の表示データ・視点切替バーを描画
+function renderSceneControls() {
+  const variantSwitch = $("variant-switch");
+  const viewpointBar = $("viewpoint-bar");
+  const scene = state.current;
+
+  const variants = scene?.local
+    ? upload.variants.map((v) => ({ name: v.label.trim() || "データ" }))
+    : scene?.variants || [];
+  variantSwitch.innerHTML = "";
+  if (variants.length > 1) {
+    variants.forEach((v, i) => {
+      const b = document.createElement("button");
+      b.className = `pill${i === state.variantIndex ? " active" : ""}`;
+      b.textContent = v.name;
+      b.addEventListener("click", () => switchVariant(i));
+      variantSwitch.appendChild(b);
+    });
+  }
+  variantSwitch.classList.toggle("hidden", variants.length <= 1);
+
+  const viewpoints = currentViewpoints();
+  viewpointBar.innerHTML = "";
+  viewpoints.forEach((vp, i) => {
+    const b = document.createElement("button");
+    b.className = "pill";
+    const num = document.createElement("span");
+    num.className = "pill-num";
+    num.textContent = String(i + 1);
+    b.appendChild(num);
+    b.appendChild(document.createTextNode(vp.name || `視点${i + 1}`));
+    b.addEventListener("click", () => viewer.applyViewpoint(vp));
+    viewpointBar.appendChild(b);
+  });
+  viewpointBar.classList.toggle("hidden", viewpoints.length === 0);
 }
 
 function sceneFromHash() {
@@ -356,7 +426,7 @@ function toggleFullscreen() {
 }
 
 document.addEventListener("keydown", (e) => {
-  if (e.target.closest("input, textarea, select")) return;
+  if (e.target.closest?.("input, textarea, select")) return;
   if (e.metaKey || e.ctrlKey || e.altKey) return;
   switch (e.code) {
     case "KeyH":
@@ -375,12 +445,21 @@ document.addEventListener("keydown", (e) => {
       setHelp(false);
       for (const p of panels) setPanel(p, false);
       break;
+    default: {
+      // 数字キー1〜9で登録視点へ移動
+      const m = e.code.match(/^Digit([1-9])$/);
+      if (m) {
+        const vp = currentViewpoints()[Number(m[1]) - 1];
+        if (vp) viewer.applyViewpoint(vp);
+      }
+    }
   }
 });
 
 // ---------- アップロードスタジオ ----------
 
-const upload = { file: null, pose: null };
+// variants: [{file, label}] / viewpoints: [{name, position, target, fov}]
+const upload = { variants: [], viewpoints: [], previewIndex: -1 };
 const SPLAT_EXTS = [".spz", ".ply", ".splat", ".ksplat", ".sog", ".rad", ".zip"];
 
 const stemOf = (name) => name.replace(/\.[^.]+$/, "");
@@ -388,28 +467,43 @@ const stemOf = (name) => name.replace(/\.[^.]+$/, "");
 $("upload-drop").addEventListener("click", () => $("upload-file").click());
 $("upload-file").addEventListener("change", (e) => {
   const file = e.target.files?.[0];
-  if (file) prepareLocalFile(file);
+  if (file) addLocalFile(file);
+  e.target.value = "";
+});
+$("upload-add-variant").addEventListener("click", () => $("upload-file-variant").click());
+$("upload-file-variant").addEventListener("change", (e) => {
+  const file = e.target.files?.[0];
+  if (file) addLocalFile(file);
   e.target.value = "";
 });
 
-async function prepareLocalFile(file) {
+// ファイルを表示データとして追加(1つ目=3DGS、2つ目以降=点群などのバリアント)
+async function addLocalFile(file) {
   if (!SPLAT_EXTS.some((ext) => file.name.toLowerCase().endsWith(ext))) {
     toast("対応していないファイル形式です (.spz / .ply / .splat / .ksplat / .sog / .rad)", {
       error: true,
     });
     return;
   }
-  upload.file = file;
-  upload.pose = null;
+  if (upload.variants.some((v) => v.file.name === file.name)) {
+    toast("同名のファイルが既に追加されています", { error: true });
+    return;
+  }
+  const isFirst = upload.variants.length === 0;
+  const isPly = file.name.toLowerCase().endsWith(".ply");
+  upload.variants.push({ file, label: isFirst ? "3DGS" : isPly ? "点群" : `データ${upload.variants.length + 1}` });
+  if (isFirst && !$("upload-name").value.trim()) {
+    $("upload-name").value = stemOf(file.name);
+  }
   $("upload-form").classList.remove("hidden");
-  $("upload-file-info").textContent = `${file.name} (${formatBytes(file.size)})`;
-  if (!$("upload-name").value.trim()) $("upload-name").value = stemOf(file.name);
-  $("upload-pose-value").textContent = "未記録 — アップロード時の視点を使います";
-  $("upload-pose-value").classList.remove("captured");
   $("upload-status").textContent = "";
   $("upload-status").classList.remove("error");
   setPanel("panel-upload", true);
-  await previewLocalFile();
+  renderUploadVariants();
+  await previewLocalVariant(upload.variants.length - 1, { keepCamera: !isFirst });
+  if (isFirst) {
+    toast("プレビュー中 — 視点と速度を決めてアップロードしてください", { duration: 5000 });
+  }
 }
 
 function currentUploadOptions() {
@@ -419,53 +513,162 @@ function currentUploadOptions() {
   };
 }
 
+function localSceneInfo() {
+  const base = upload.variants[0];
+  return {
+    id: "local",
+    name: base ? stemOf(base.file.name) : "ローカル",
+    local: true,
+    options: currentUploadOptions(),
+  };
+}
+
 // ローカルファイルをビューアでプレビュー(サーバを経由しない)
-async function previewLocalFile() {
-  if (!upload.file) return;
-  const file = upload.file;
+async function previewLocalVariant(index, { keepCamera = false } = {}) {
+  const variant = upload.variants[index];
+  if (!variant) return;
   const token = ++loadSeq;
-  showLoading(`「${file.name}」をプレビュー中...`);
+  showLoading(`「${variant.file.name}」をプレビュー中...`);
   try {
-    const buf = await file.arrayBuffer();
+    const buf = await variant.file.arrayBuffer();
     if (token !== loadSeq) return;
-    const scene = {
-      id: `local:${file.name}`,
-      name: stemOf(file.name),
-      local: true,
-      options: currentUploadOptions(),
-    };
-    const mesh = await viewer.loadSceneFromBytes(scene, buf, file.name, {
+    const scene = localSceneInfo();
+    const mesh = await viewer.loadSceneFromBytes(scene, buf, variant.file.name, {
+      keepCamera,
       onProgress: (e) => {
         if (token === loadSeq) updateLoading(e);
       },
     });
     if (token !== loadSeq || !mesh) return;
+    upload.previewIndex = index;
     state.current = scene;
+    state.variantIndex = index;
     $("scene-title").textContent = `${scene.name}(ローカルプレビュー)`;
-    $("scene-title").title = file.name;
+    $("scene-title").title = variant.file.name;
     syncSpeedSlider();
     renderSceneList();
+    renderUploadVariants();
+    renderSceneControls();
     hideLoading();
-    toast("プレビュー中 — 視点と速度を決めてアップロードしてください", { duration: 5000 });
   } catch (err) {
     if (token !== loadSeq) return;
     console.error(err);
-    showLoadError(err.message || String(err), previewLocalFile);
+    showLoadError(err.message || String(err), () => previewLocalVariant(index, { keepCamera }));
   }
 }
 
+function renderUploadVariants() {
+  const list = $("upload-variants");
+  list.innerHTML = "";
+  upload.variants.forEach((v, i) => {
+    const item = document.createElement("div");
+    item.className = "variant-item";
+    if (i === upload.previewIndex && state.current?.local) item.classList.add("previewing");
+
+    const top = document.createElement("div");
+    top.className = "variant-item-top";
+    const label = document.createElement("input");
+    label.className = "variant-label-input";
+    label.value = v.label;
+    label.maxLength = 50;
+    label.title = "表示データの名前 (例: 3DGS、点群)";
+    label.addEventListener("input", () => {
+      v.label = label.value;
+      renderSceneControls();
+    });
+    const fname = document.createElement("span");
+    fname.className = "variant-file-name";
+    fname.textContent = `${v.file.name} (${formatBytes(v.file.size)})`;
+    fname.title = v.file.name;
+    top.append(label, fname);
+
+    const actions = document.createElement("div");
+    actions.className = "variant-item-actions";
+    if (!(i === upload.previewIndex && state.current?.local)) {
+      const previewBtn = document.createElement("button");
+      previewBtn.className = "mini-btn";
+      previewBtn.textContent = "プレビュー";
+      previewBtn.addEventListener("click", () => previewLocalVariant(i, { keepCamera: true }));
+      actions.appendChild(previewBtn);
+    }
+    const removeBtn = document.createElement("button");
+    removeBtn.className = "mini-btn";
+    removeBtn.textContent = "削除";
+    removeBtn.addEventListener("click", () => {
+      upload.variants.splice(i, 1);
+      if (upload.variants.length === 0) {
+        upload.previewIndex = -1;
+        $("upload-form").classList.add("hidden");
+      } else if (upload.previewIndex >= upload.variants.length) {
+        upload.previewIndex = upload.variants.length - 1;
+      }
+      renderUploadVariants();
+      renderSceneControls();
+    });
+    actions.appendChild(removeBtn);
+
+    item.append(top, actions);
+    list.appendChild(item);
+  });
+}
+
 // LoD/extSplatsの切替はプレビューの構築方法に影響するため再読み込み
-$("upload-lod").addEventListener("change", previewLocalFile);
-$("upload-ext").addEventListener("change", previewLocalFile);
+const reloadPreview = () => {
+  if (upload.previewIndex >= 0) previewLocalVariant(upload.previewIndex, { keepCamera: true });
+};
+$("upload-lod").addEventListener("change", reloadPreview);
+$("upload-ext").addEventListener("change", reloadPreview);
 
 $("upload-capture").addEventListener("click", () => {
-  if (!state.current) return;
-  upload.pose = viewer.captureCameraPose();
-  const p = upload.pose.position.map((v) => v.toFixed(1)).join(", ");
-  $("upload-pose-value").textContent = `位置 [${p}] / FOV ${upload.pose.fov}° を記録しました`;
-  $("upload-pose-value").classList.add("captured");
-  toast("開始位置を記録しました");
+  const pose = viewer.captureCameraPose();
+  upload.viewpoints.push({ name: `視点${upload.viewpoints.length + 1}`, ...pose });
+  renderUploadViewpoints();
+  renderSceneControls();
+  toast(`視点${upload.viewpoints.length}を追加しました(下のバーで確認できます)`);
 });
+
+function renderUploadViewpoints() {
+  const list = $("upload-viewpoints");
+  list.innerHTML = "";
+  upload.viewpoints.forEach((vp, i) => {
+    const item = document.createElement("div");
+    item.className = "viewpoint-item";
+
+    const num = document.createElement("span");
+    num.className = "viewpoint-index";
+    num.textContent = String(i + 1);
+
+    const name = document.createElement("input");
+    name.className = "viewpoint-name-input";
+    name.value = vp.name;
+    name.maxLength = 50;
+    name.addEventListener("input", () => {
+      vp.name = name.value;
+      renderSceneControls();
+    });
+
+    const goBtn = document.createElement("button");
+    goBtn.className = "mini-btn";
+    goBtn.textContent = "移動";
+    goBtn.addEventListener("click", () => viewer.applyViewpoint(vp));
+
+    const removeBtn = document.createElement("button");
+    removeBtn.className = "mini-btn";
+    removeBtn.textContent = "削除";
+    removeBtn.addEventListener("click", () => {
+      upload.viewpoints.splice(i, 1);
+      renderUploadViewpoints();
+      renderSceneControls();
+    });
+
+    item.append(num, name, goBtn, removeBtn);
+    list.appendChild(item);
+  });
+  $("upload-pose-hint").textContent =
+    upload.viewpoints.length > 0
+      ? "最初の視点が開始位置になります。数字キーでも移動できます。"
+      : "最初の視点が開始位置になります。未追加の場合はアップロード時の視点を使います。";
+}
 
 function uploadFileWithProgress(file, onProgress) {
   return new Promise((resolve, reject) => {
@@ -488,7 +691,7 @@ function uploadFileWithProgress(file, onProgress) {
 }
 
 $("upload-submit").addEventListener("click", async () => {
-  if (!upload.file) return;
+  if (upload.variants.length === 0) return;
   const name = $("upload-name").value.trim();
   if (!name) {
     toast("シーン名を入力してください", { error: true });
@@ -502,22 +705,47 @@ $("upload-submit").addEventListener("click", async () => {
   $("upload-progress-track").classList.remove("hidden");
   $("upload-progress").style.width = "0%";
   try {
-    const { key } = await uploadFileWithProgress(upload.file, (pct, loaded, total) => {
-      $("upload-progress").style.width = `${pct}%`;
-      statusEl.textContent = `アップロード中... ${formatBytes(loaded)} / ${formatBytes(total)} (${pct.toFixed(0)}%)`;
-    });
+    // 全ファイルを順番にアップロード
+    const total = upload.variants.length;
+    const keys = [];
+    for (let i = 0; i < total; i++) {
+      const v = upload.variants[i];
+      const prefix = total > 1 ? `ファイル ${i + 1}/${total}: ` : "";
+      const { key } = await uploadFileWithProgress(v.file, (pct, loaded, totalBytes) => {
+        $("upload-progress").style.width = `${(i * 100 + pct) / total}%`;
+        statusEl.textContent = `${prefix}アップロード中... ${formatBytes(loaded)} / ${formatBytes(totalBytes)} (${pct.toFixed(0)}%)`;
+      });
+      keys.push(key);
+    }
+
     statusEl.textContent = "シーン情報を保存中...";
+    // 視点が未登録ならアップロード時の視点を開始位置として使う
+    const viewpoints =
+      upload.viewpoints.length > 0
+        ? upload.viewpoints
+        : [{ name: "開始位置", ...viewer.captureCameraPose() }];
     const entry = {
-      id: key,
+      id: keys[0],
       name,
       description: $("upload-desc").value.trim(),
-      key,
+      key: keys[0],
       options: currentUploadOptions(),
       // プレビューと同じ向きで表示されるように明示的に保存
       transform: { rotationDeg: [180, 0, 0] },
-      camera: upload.pose ?? viewer.captureCameraPose(),
+      camera: {
+        position: viewpoints[0].position,
+        target: viewpoints[0].target,
+        fov: viewpoints[0].fov,
+      },
       moveSpeed: Math.round(viewer.controls.fpsMovement.moveSpeed * 100) / 100,
+      viewpoints,
     };
+    if (keys.length > 1) {
+      entry.variants = keys.map((key, i) => ({
+        name: upload.variants[i].label.trim() || `データ${i + 1}`,
+        key,
+      }));
+    }
     const res = await fetch("/api/manifest", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -530,10 +758,12 @@ $("upload-submit").addEventListener("click", async () => {
     statusEl.textContent = "完了しました ✓";
     toast(`「${name}」をR2にアップロードしました`);
     await refreshScenes();
-    const uploaded = state.scenes.find((s) => s.key === key);
+    const uploaded = state.scenes.find((s) => s.key === keys[0]);
     if (uploaded) {
       state.current = uploaded;
+      state.variantIndex = Math.min(state.variantIndex ?? 0, keys.length - 1);
       renderSceneList();
+      renderSceneControls();
       history.replaceState(null, "", `#scene=${encodeURIComponent(uploaded.id)}`);
       $("scene-title").textContent = uploaded.name;
     }
@@ -570,7 +800,7 @@ window.addEventListener("drop", (e) => {
   dragDepth = 0;
   $("drop-overlay").classList.add("hidden");
   const file = e.dataTransfer?.files?.[0];
-  if (file) prepareLocalFile(file);
+  if (file) addLocalFile(file);
 });
 
 // ---------- 起動 ----------
