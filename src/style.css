@@ -378,6 +378,57 @@ input[type="checkbox"]:checked::after {
 .upload-drop span { color: var(--text-dim); font-size: 12px; }
 .upload-drop-note { font-size: 10px !important; letter-spacing: 0.05em; }
 
+/* 複数ファイルの扱い(合成/切替)ラジオ */
+.radio-group { display: flex; gap: 6px; }
+.radio-pill {
+  flex: 1;
+  cursor: pointer;
+}
+.radio-pill input { display: none; }
+.radio-pill span {
+  display: block;
+  text-align: center;
+  padding: 7px 8px;
+  border-radius: 9px;
+  border: 1px solid var(--border-strong);
+  background: rgba(255, 255, 255, 0.04);
+  font-size: 12px;
+  color: var(--text-dim);
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
+}
+.radio-pill input:checked + span {
+  border-color: rgba(103, 232, 249, 0.55);
+  color: var(--accent);
+  background: rgba(103, 232, 249, 0.08);
+}
+
+/* レイヤー配置の数値入力 */
+.layer-transform {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 5px;
+}
+.layer-transform label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  color: var(--text-dim);
+}
+.layer-transform input {
+  width: 100%;
+  min-width: 0;
+  padding: 4px 6px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 11px;
+  outline: none;
+}
+.layer-transform input:focus { border-color: rgba(103, 232, 249, 0.55); }
+
 /* 表示データ(バリアント)リスト */
 .variant-list { margin: 0 6px 8px; display: flex; flex-direction: column; gap: 6px; }
 .variant-item {

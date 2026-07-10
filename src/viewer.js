@@ -33,7 +33,7 @@ export class Viewer {
     this.baseRotateSpeed = this.controls.fpsMovement.rotateSpeed;
     this.basePointerRotateSpeed = this.controls.pointerControls.rotateSpeed;
 
-    this.mesh = null;
+    this.layers = []; // [{ mesh, group }] — 合成ワールドでは複数レイヤーを同時表示
     this.loadId = 0;
     this.homePose = null; // { position, quaternion }
     this.flight = null; // 進行中のフライトアニメーション
@@ -119,9 +119,7 @@ export class Viewer {
     }
   }
 
-  splatCount() {
-    const m = this.mesh;
-    if (!m) return 0;
+  #meshSplatCount(m) {
     // LoD有効時はpackedSplatsが0になり、実数はlastSplatsに入る
     let count = 0;
     for (const source of [m.packedSplats, m.extSplats, m.splats, m.lastSplats]) {
@@ -130,59 +128,109 @@ export class Viewer {
     return count;
   }
 
+  splatCount() {
+    return this.layers.reduce((sum, l) => sum + this.#meshSplatCount(l.mesh), 0);
+  }
+
   /**
    * シーンをロードして表示する。既存シーンは破棄。
    * @param {object} sceneInfo /api/scenes のシーンエントリ
-   * @param {string} url スプラットファイルのURL
+   * @param {string|Array} sources 単一URL、または
+   *   [{url?, fileBytes?, fileName?, layer?}] の配列(合成ワールドは複数要素)。
+   *   layer = scenes.json の layers エントリ ({name, key, transform, options})
+   * @returns ロードしたメッシュ配列(切替済みならnull)
    */
-  async loadScene(sceneInfo, url, { onProgress, keepCamera = false } = {}) {
-    return this.#load(sceneInfo, { url }, onProgress, keepCamera);
+  async loadScene(sceneInfo, sources, { onProgress, keepCamera = false } = {}) {
+    const list = typeof sources === "string" ? [{ url: sources }] : sources;
+    return this.#load(sceneInfo, list, onProgress, keepCamera);
   }
 
   /** ローカルファイル(アップロードスタジオ)からシーンをロードする */
   async loadSceneFromBytes(sceneInfo, fileBytes, fileName, { onProgress, keepCamera = false } = {}) {
-    return this.#load(sceneInfo, { fileBytes, fileName }, onProgress, keepCamera);
+    return this.#load(
+      sceneInfo,
+      [{ fileBytes, fileName }],
+      onProgress ? (_i, e) => onProgress(e) : undefined,
+      keepCamera
+    );
   }
 
-  async #load(sceneInfo, source, onProgress, keepCamera = false) {
+  async #load(sceneInfo, sources, onProgress, keepCamera = false) {
     const id = ++this.loadId;
     this.#disposeCurrent();
 
-    const options = sceneInfo.options || {};
-    const keyName =
-      sceneInfo.key || source.fileName || (source.url ? source.url.split("?")[0] : "");
-    const isRad = /\.rad$/i.test(keyName);
-
-    const mesh = new SplatMesh({
-      ...source,
-      onProgress,
-      // 広域シーン向け: .rad以外はデフォルトでランタイムLoDツリーを構築
-      lod: options.lod ?? (isRad ? undefined : true),
-      // 原点から離れた座標での量子化誤差を防ぐ(広域シーン向け)
-      extSplats: options.extSplats ?? undefined,
-      paged: options.paged ?? undefined,
-      maxSplats: options.maxSplats ?? undefined,
-    });
-
+    const globalOptions = sceneInfo.options || {};
+    const created = [];
+    let meshes;
     try {
-      await mesh.initialized;
+      meshes = await Promise.all(
+        sources.map(async (source, index) => {
+          const options = source.layer?.options ?? globalOptions;
+          const keyName =
+            source.layer?.key ||
+            sceneInfo.key ||
+            source.fileName ||
+            (source.url ? source.url.split("?")[0] : "");
+          const isRad = /\.rad$/i.test(keyName);
+          const mesh = new SplatMesh({
+            url: source.url,
+            fileBytes: source.fileBytes,
+            fileName: source.fileName,
+            onProgress: onProgress ? (e) => onProgress(index, e) : undefined,
+            // 広域シーン向け: .rad以外はデフォルトでランタイムLoDツリーを構築
+            lod: options.lod ?? (isRad ? undefined : true),
+            // 原点から離れた座標での量子化誤差を防ぐ(広域シーン向け)
+            extSplats: options.extSplats ?? undefined,
+            paged: options.paged ?? undefined,
+            maxSplats: options.maxSplats ?? undefined,
+          });
+          created.push(mesh);
+          await mesh.initialized;
+          return mesh;
+        })
+      );
     } catch (err) {
-      mesh.dispose();
+      for (const m of created) m.dispose();
       throw err;
     }
+
     if (id !== this.loadId) {
       // ロード中に別シーンへ切り替わった
-      mesh.dispose();
+      for (const m of meshes) m.dispose();
       return null;
     }
 
-    this.#applyTransform(mesh, sceneInfo.transform);
-    this.mesh = mesh;
-    this.scene.add(mesh);
+    meshes.forEach((mesh, index) => {
+      const group = new THREE.Group();
+      group.add(mesh);
+      this.scene.add(group);
+      const layerDef = sources[index].layer;
+      if (layerDef) {
+        this.#applyLayerTransform(mesh, group, layerDef.transform);
+      } else {
+        this.#applyTransform(mesh, sceneInfo.transform);
+      }
+      group.updateMatrixWorld(true);
+      this.layers.push({ mesh, group });
+    });
 
     // 表示データ切替時はカメラを動かさない
     if (!keepCamera) this.#setupCamera(sceneInfo);
-    return mesh;
+    return meshes;
+  }
+
+  /** レイヤーの配置をライブ更新する(合成ワールドの位置合わせ用) */
+  setLayerTransform(index, transform) {
+    const layer = this.layers[index];
+    if (!layer) return;
+    this.#applyLayerTransform(layer.mesh, layer.group, transform);
+    layer.group.updateMatrixWorld(true);
+  }
+
+  /** レイヤーの表示/非表示を切り替える */
+  setLayerVisible(index, visible) {
+    const layer = this.layers[index];
+    if (layer) layer.group.visible = visible;
   }
 
   /** 名前付き視点へスムーズに移動する ({position, target?, fov?}) */
@@ -211,8 +259,8 @@ export class Viewer {
     const qInv = new THREE.Quaternion(qx, qy, qz, qw).invert();
     const center = new THREE.Vector3(tx, ty, tz).applyQuaternion(qInv).negate();
     const dir = new THREE.Vector3(0, 0, 1).applyQuaternion(qInv);
-    const m = this.mesh
-      ? this.mesh.matrixWorld
+    const m = this.layers[0]
+      ? this.layers[0].mesh.matrixWorld
       : new THREE.Matrix4().makeRotationX(Math.PI);
     const pos = center.clone().applyMatrix4(m);
     const target = center.clone().add(dir).applyMatrix4(m);
@@ -242,11 +290,11 @@ export class Viewer {
 
   #disposeCurrent() {
     this.flight = null;
-    if (this.mesh) {
-      this.scene.remove(this.mesh);
-      this.mesh.dispose();
-      this.mesh = null;
+    for (const { mesh, group } of this.layers) {
+      this.scene.remove(group);
+      mesh.dispose();
     }
+    this.layers = [];
   }
 
   #applyTransform(mesh, transform) {
@@ -262,14 +310,35 @@ export class Viewer {
     mesh.updateMatrixWorld(true);
   }
 
+  // レイヤー配置: 内側のmeshにY下→Y上の反転回転、外側のgroupに
+  // 位置・方位(ワールドY軸回り)・スケールを適用する
+  #applyLayerTransform(mesh, group, transform) {
+    const rotDeg = transform?.rotationDeg ?? [180, 0, 0];
+    mesh.rotation.set(
+      THREE.MathUtils.degToRad(rotDeg[0]),
+      THREE.MathUtils.degToRad(rotDeg[1]),
+      THREE.MathUtils.degToRad(rotDeg[2])
+    );
+    group.position.set(0, 0, 0);
+    if (transform?.position) group.position.fromArray(transform.position);
+    group.rotation.set(0, THREE.MathUtils.degToRad(transform?.headingDeg ?? 0), 0);
+    const scale = Number.isFinite(transform?.scale) && transform.scale > 0 ? transform.scale : 1;
+    group.scale.setScalar(scale);
+  }
+
   #setupCamera(sceneInfo) {
     const cam = sceneInfo.camera;
     let center = new THREE.Vector3();
     let diag = 10;
 
     try {
-      const box = this.mesh.getBoundingBox().clone();
-      box.applyMatrix4(this.mesh.matrixWorld);
+      // 全レイヤーのバウンディングボックスを統合
+      const box = new THREE.Box3();
+      for (const { mesh } of this.layers) {
+        const b = mesh.getBoundingBox().clone();
+        b.applyMatrix4(mesh.matrixWorld);
+        box.union(b);
+      }
       if (!box.isEmpty()) {
         center = box.getCenter(new THREE.Vector3());
         diag = Math.max(box.getSize(new THREE.Vector3()).length(), 0.1);
@@ -313,14 +382,15 @@ export class Viewer {
   }
 
   #onDoubleClick(event) {
-    if (!this.mesh) return;
+    const meshes = this.layers.filter((l) => l.group.visible).map((l) => l.mesh);
+    if (meshes.length === 0) return;
     const rect = this.renderer.domElement.getBoundingClientRect();
     const ndc = new THREE.Vector2(
       ((event.clientX - rect.left) / rect.width) * 2 - 1,
       -((event.clientY - rect.top) / rect.height) * 2 + 1
     );
     this.raycaster.setFromCamera(ndc, this.camera);
-    const hits = this.raycaster.intersectObject(this.mesh, false);
+    const hits = this.raycaster.intersectObjects(meshes, false);
     if (hits.length === 0) return;
 
     const point = hits[0].point;

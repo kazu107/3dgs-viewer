@@ -127,8 +127,21 @@
       </button>
 
       <div id="upload-form" class="hidden">
+        <div class="setting" id="upload-mode-row">
+          <span class="setting-label">複数ファイルの扱い</span>
+          <div class="radio-group">
+            <label class="radio-pill">
+              <input type="radio" name="upload-mode" value="layers" checked />
+              <span>合成(同時表示)</span>
+            </label>
+            <label class="radio-pill">
+              <input type="radio" name="upload-mode" value="variants" />
+              <span>切替(3DGS⇔点群)</span>
+            </label>
+          </div>
+        </div>
         <div id="upload-variants" class="variant-list"></div>
-        <button type="button" class="mini-btn add-variant-btn" id="upload-add-variant">+ 点群など別の表示データを追加</button>
+        <button type="button" class="mini-btn add-variant-btn" id="upload-add-variant">+ ファイルを追加</button>
         <label class="setting">
           <span class="setting-label">シーン名</span>
           <input type="text" id="upload-name" class="text-input" maxlength="100" placeholder="例: 都市スキャン" />

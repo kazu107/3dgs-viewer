@@ -159,11 +159,15 @@ async function buildSceneList() {
   for (const entry of manifest ?? []) {
     if (!entry || typeof entry.key !== "string" || !isValidSceneKey(entry.key)) continue;
     usedKeys.add(entry.key);
-    // variantsに含まれるキーも自動検出の重複対象から除外する
+    // variants/layersに含まれるキーも自動検出の重複対象から除外する
     const variants = Array.isArray(entry.variants)
       ? entry.variants.filter((v) => v && isValidSceneKey(v.key))
       : null;
     for (const v of variants ?? []) usedKeys.add(v.key);
+    const layers = Array.isArray(entry.layers)
+      ? entry.layers.filter((l) => l && isValidSceneKey(l.key))
+      : null;
+    for (const l of layers ?? []) usedKeys.add(l.key);
     scenes.push({
       id: entry.id || entry.key,
       name: entry.name || fileNameToSceneName(entry.key),
@@ -175,6 +179,7 @@ async function buildSceneList() {
       camera: entry.camera || null,
       moveSpeed: entry.moveSpeed ?? null,
       variants: variants && variants.length > 0 ? variants : null,
+      layers: layers && layers.length > 0 ? layers : null,
       viewpoints: Array.isArray(entry.viewpoints) ? entry.viewpoints : null,
     });
   }
@@ -358,8 +363,35 @@ app.post("/api/manifest", requireUpload, express.json({ limit: "64kb" }), async 
     if (variants.length > 0) clean.variants = variants;
   }
 
-  // 名前付き視点のリスト
+  // 合成ワールドのレイヤー(複数ファイルを同時表示、各レイヤーに配置情報)
   const isVec3 = (a) => Array.isArray(a) && a.length === 3 && a.every(Number.isFinite);
+  const sanitizeLayerTransform = (t) => {
+    if (!t || typeof t !== "object") return undefined;
+    const out = {};
+    if (isVec3(t.position)) out.position = t.position.map((n) => Math.round(n * 1000) / 1000);
+    if (isVec3(t.rotationDeg)) out.rotationDeg = t.rotationDeg.map((n) => Math.round(n * 100) / 100);
+    if (Number.isFinite(t.headingDeg)) out.headingDeg = Math.round(t.headingDeg * 100) / 100;
+    if (Number.isFinite(t.scale) && t.scale > 0) out.scale = Math.round(t.scale * 10000) / 10000;
+    return Object.keys(out).length > 0 ? out : undefined;
+  };
+  if (Array.isArray(entry.layers)) {
+    const layers = entry.layers
+      .filter((l) => l && typeof l === "object" && isValidSceneKey(l.key))
+      .slice(0, 16)
+      .map((l, i) => {
+        const out = {
+          name: String(l.name || "").trim().slice(0, 50) || `レイヤー${i + 1}`,
+          key: l.key,
+        };
+        if (l.options && typeof l.options === "object") out.options = l.options;
+        const transform = sanitizeLayerTransform(l.transform);
+        if (transform) out.transform = transform;
+        return out;
+      });
+    if (layers.length > 0) clean.layers = layers;
+  }
+
+  // 名前付き視点のリスト
   if (Array.isArray(entry.viewpoints)) {
     const viewpoints = entry.viewpoints
       .filter((vp) => vp && typeof vp === "object" && isVec3(vp.position))
