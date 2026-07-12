@@ -476,6 +476,19 @@ $("help-modal").addEventListener("click", (e) => {
 
 $("btn-screenshot").addEventListener("click", () => takeScreenshot());
 $("btn-fullscreen").addEventListener("click", toggleFullscreen);
+$("btn-ar").addEventListener("click", openAr);
+
+// 現在のシーン/バリアントを引き継いでARビューアを開く
+function openAr() {
+  const scene = state.current;
+  if (!scene || scene.local) {
+    toast("先に表示するシーンを選んでください(ローカルプレビューはAR非対応)", { error: true });
+    return;
+  }
+  const params = new URLSearchParams({ scene: scene.id });
+  if (state.variantIndex) params.set("variant", String(state.variantIndex));
+  location.href = `/ar.html#${params.toString()}`;
+}
 
 function takeScreenshot() {
   const base = (state.current?.name || "3dgs").replace(/[\\/:*?"<>|\s]+/g, "_");

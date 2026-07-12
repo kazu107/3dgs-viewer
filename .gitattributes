@@ -9,3 +9,5 @@
 *.rad binary
 *.radc binary
 *.sog binary
+*.dat binary
+*.hiro binary

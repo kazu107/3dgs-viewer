@@ -1,0 +1,265 @@
+:root {
+  --bg: #07090f;
+  --surface: rgba(13, 17, 27, 0.92);
+  --border: rgba(255, 255, 255, 0.12);
+  --border-strong: rgba(255, 255, 255, 0.2);
+  --text: #e8ecf4;
+  --text-dim: #93a0b4;
+  --accent: #67e8f9;
+  --accent-2: #818cf8;
+  --accent-grad: linear-gradient(135deg, #67e8f9, #818cf8);
+  --danger: #f87171;
+  --font: "Inter", "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Noto Sans JP", "Yu Gothic UI", Meiryo, system-ui, sans-serif;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+html, body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: #000;
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 15px;
+  -webkit-font-smoothing: antialiased;
+}
+
+.hidden { display: none !important; }
+
+/* AR.js が生成する <video> と <canvas> は position:absolute で全画面に敷かれる */
+#ar-root canvas,
+body > video {
+  position: absolute !important;
+  top: 0;
+  left: 0;
+}
+
+/* ---------- オーバーレイ(開始/マーカー/エラー) ---------- */
+.ar-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: radial-gradient(circle at 50% 30%, #10141f, #05070c);
+  overflow-y: auto;
+}
+.ar-card {
+  width: min(440px, 100%);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  padding: 26px 24px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+  text-align: center;
+}
+.ar-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  font-size: 14px;
+  color: var(--text-dim);
+  margin-bottom: 14px;
+}
+.ar-brand-mark {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #a5f3fc, #6366f1 75%);
+  box-shadow: 0 0 12px rgba(103, 232, 249, 0.5);
+}
+.ar-card h1 {
+  font-size: 20px;
+  font-weight: 700;
+  margin-bottom: 10px;
+  word-break: break-word;
+}
+.ar-lead {
+  font-size: 13.5px;
+  color: var(--text-dim);
+  line-height: 1.7;
+  margin-bottom: 18px;
+}
+.ar-field { text-align: left; margin-bottom: 14px; }
+.ar-field label {
+  display: block;
+  font-size: 12px;
+  color: var(--text-dim);
+  margin-bottom: 6px;
+}
+.ar-input {
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border-strong);
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 14px;
+  outline: none;
+}
+.ar-input:focus { border-color: rgba(103, 232, 249, 0.55); }
+
+.ar-primary {
+  width: 100%;
+  padding: 14px;
+  margin-bottom: 10px;
+  border: none;
+  border-radius: 12px;
+  background: var(--accent-grad);
+  color: #06121a;
+  font-family: inherit;
+  font-size: 16px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: filter 0.15s, transform 0.12s;
+}
+.ar-primary:hover { filter: brightness(1.08); }
+.ar-primary:active { transform: scale(0.98); }
+.ar-primary:disabled { filter: grayscale(0.6) brightness(0.6); cursor: default; }
+
+.ar-secondary {
+  width: 100%;
+  padding: 12px;
+  margin-bottom: 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 14px;
+  cursor: pointer;
+}
+.ar-secondary:hover { background: rgba(255, 255, 255, 0.12); }
+
+.ar-back {
+  display: inline-block;
+  color: var(--text-dim);
+  font-size: 13px;
+  text-decoration: none;
+  margin-top: 6px;
+}
+.ar-back:hover { color: var(--text); }
+
+.ar-note {
+  font-size: 11.5px;
+  color: var(--text-dim);
+  line-height: 1.6;
+  margin-top: 14px;
+}
+.ar-note.warn { color: #fbbf24; }
+
+/* ---------- 実行中HUD ---------- */
+#ar-hud {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  pointer-events: none;
+}
+.ar-status {
+  position: absolute;
+  top: calc(env(safe-area-inset-top, 0px) + 14px);
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 8px 18px;
+  border-radius: 99px;
+  background: rgba(5, 7, 12, 0.7);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid var(--border);
+  font-size: 13px;
+  white-space: nowrap;
+}
+.ar-status.found { border-color: rgba(103, 232, 249, 0.5); color: var(--accent); }
+
+.ar-controls {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 12px);
+  padding: 14px 16px;
+  border-radius: 16px;
+  background: rgba(5, 7, 12, 0.72);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid var(--border);
+  pointer-events: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-width: 440px;
+  margin: 0 auto;
+}
+.ar-slider { display: flex; flex-direction: column; gap: 6px; }
+.ar-slider label {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12.5px;
+  color: var(--text-dim);
+}
+.ar-slider output { color: var(--accent); font-variant-numeric: tabular-nums; }
+.ar-controls input[type="range"] {
+  width: 100%;
+  height: 4px;
+  appearance: none;
+  -webkit-appearance: none;
+  background: rgba(255, 255, 255, 0.16);
+  border-radius: 2px;
+  outline: none;
+}
+.ar-controls input[type="range"]::-webkit-slider-thumb {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--accent-grad);
+  border: 2px solid #0b0e17;
+}
+.ar-controls input[type="range"]::-moz-range-thumb {
+  width: 20px; height: 20px; border-radius: 50%;
+  background: var(--accent-grad); border: 2px solid #0b0e17;
+}
+.ar-btn-row { display: flex; gap: 8px; }
+.ar-mini {
+  flex: 1;
+  padding: 10px;
+  border-radius: 10px;
+  border: 1px solid var(--border-strong);
+  background: rgba(255, 255, 255, 0.07);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+.ar-mini:hover { background: rgba(255, 255, 255, 0.13); }
+
+/* ---------- マーカー表示 ---------- */
+.ar-marker-view {
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  max-width: 300px;
+  margin: 0 auto 14px;
+  background: #fff;
+  border-radius: 8px;
+  display: grid;
+  place-items: center;
+  padding: 8%;
+}
+.ar-marker-view svg { width: 100%; height: 100%; display: block; }
+
+/* ローディングスピナー */
+.ar-spinner {
+  width: 40px;
+  height: 40px;
+  margin: 0 auto 16px;
+  border-radius: 50%;
+  border: 3px solid rgba(255, 255, 255, 0.14);
+  border-top-color: var(--accent);
+  animation: ar-spin 0.9s linear infinite;
+}
+@keyframes ar-spin { to { transform: rotate(360deg); } }

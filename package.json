@@ -22,8 +22,12 @@
     "express": "^4.21.2"
   },
   "devDependencies": {
+    "@ar-js-org/ar.js-threejs": "^0.3.2",
     "@sparkjsdev/spark": "^2.1.0",
     "three": "^0.180.0",
     "vite": "^6.3.5"
+  },
+  "overrides": {
+    "three": "$three"
   }
 }
