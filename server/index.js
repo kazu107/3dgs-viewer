@@ -181,6 +181,7 @@ async function buildSceneList() {
       variants: variants && variants.length > 0 ? variants : null,
       layers: layers && layers.length > 0 ? layers : null,
       viewpoints: Array.isArray(entry.viewpoints) ? entry.viewpoints : null,
+      world: entry.world || null,
     });
   }
 
@@ -390,6 +391,10 @@ app.post("/api/manifest", requireUpload, express.json({ limit: "64kb" }), async 
       });
     if (layers.length > 0) clean.layers = layers;
   }
+
+  // シーン全体の配置(world transform: 位置/回転XYZ/倍率)
+  const world = sanitizeLayerTransform(entry.world);
+  if (world) clean.world = world;
 
   // 名前付き視点のリスト
   if (Array.isArray(entry.viewpoints)) {

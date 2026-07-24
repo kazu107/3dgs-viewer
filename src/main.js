@@ -538,7 +538,23 @@ document.addEventListener("keydown", (e) => {
 // ---------- アップロードスタジオ ----------
 
 // files: [{file, label, transform, visible}] / mode: "layers"(合成=同時表示) | "variants"(切替)
-const upload = { files: [], mode: "layers", viewpoints: [], previewIndex: -1 };
+// world: シーン全体の位置/回転/倍率
+const upload = {
+  files: [],
+  mode: "layers",
+  viewpoints: [],
+  previewIndex: -1,
+  world: { position: [0, 0, 0], rotationDeg: [0, 0, 0], scale: 1 },
+};
+
+// world がデフォルト(無変換)かどうか
+function isDefaultWorld(w) {
+  return (
+    w.position.every((v) => v === 0) &&
+    w.rotationDeg.every((v) => v === 0) &&
+    w.scale === 1
+  );
+}
 const SPLAT_EXTS = [".spz", ".ply", ".splat", ".ksplat", ".sog", ".rad", ".zip"];
 
 const stemOf = (name) => name.replace(/\.[^.]+$/, "");
@@ -647,8 +663,44 @@ function localSceneInfo() {
     name: base ? stemOf(base.file.name) : "ローカル",
     local: true,
     options: currentUploadOptions(),
+    world: upload.world,
   };
 }
+
+// ---------- 全体の配置(world transform) ----------
+
+function syncWorldToViewer() {
+  viewer.setWorldTransform(upload.world);
+}
+
+function bindWorldField(id, apply) {
+  $(id).addEventListener("input", (e) => {
+    const n = Number(e.target.value);
+    if (!Number.isFinite(n)) return;
+    apply(n);
+    if (state.current?.local) syncWorldToViewer();
+  });
+}
+bindWorldField("world-px", (n) => (upload.world.position[0] = n));
+bindWorldField("world-py", (n) => (upload.world.position[1] = n));
+bindWorldField("world-pz", (n) => (upload.world.position[2] = n));
+bindWorldField("world-rx", (n) => (upload.world.rotationDeg[0] = n));
+bindWorldField("world-ry", (n) => (upload.world.rotationDeg[1] = n));
+bindWorldField("world-rz", (n) => (upload.world.rotationDeg[2] = n));
+$("world-scale").addEventListener("input", (e) => {
+  upload.world.scale = 10 ** Number(e.target.value); // 対数スライダー
+  $("world-scale-out").textContent = upload.world.scale.toFixed(2);
+  if (state.current?.local) syncWorldToViewer();
+});
+$("world-reset").addEventListener("click", () => {
+  upload.world = { position: [0, 0, 0], rotationDeg: [0, 0, 0], scale: 1 };
+  for (const id of ["world-px", "world-py", "world-pz", "world-rx", "world-ry", "world-rz"]) {
+    $(id).value = "0";
+  }
+  $("world-scale").value = "0";
+  $("world-scale-out").textContent = "1.00";
+  if (state.current?.local) syncWorldToViewer();
+});
 
 // 現在のモードに応じてローカルプレビューを再構築する
 function previewCurrent(opts = {}) {
@@ -1022,6 +1074,14 @@ $("upload-submit").addEventListener("click", async () => {
       moveSpeed: Math.round(viewer.controls.fpsMovement.moveSpeed * 100) / 100,
       viewpoints,
     };
+    // 全体の配置(調整されている場合のみ保存)
+    if (!isDefaultWorld(upload.world)) {
+      entry.world = {
+        position: upload.world.position.slice(),
+        rotationDeg: upload.world.rotationDeg.slice(),
+        scale: upload.world.scale,
+      };
+    }
     if (keys.length > 1) {
       if (upload.mode === "layers") {
         // 合成ワールド: 各レイヤーのキーと配置を保存

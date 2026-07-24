@@ -255,6 +255,22 @@ function makeSplat(url, options = {}) {
 async function loadSplats() {
   const scene = state.scene;
   const created = [];
+  // シーン全体の配置(world transform)を担うグループ。メインビューアと同じ見え方にする
+  const worldGroup = new THREE.Group();
+  const w = scene.world;
+  if (w) {
+    if (Array.isArray(w.position)) worldGroup.position.fromArray(w.position);
+    if (Array.isArray(w.rotationDeg)) {
+      worldGroup.rotation.set(
+        THREE.MathUtils.degToRad(w.rotationDeg[0] || 0),
+        THREE.MathUtils.degToRad(w.rotationDeg[1] || 0),
+        THREE.MathUtils.degToRad(w.rotationDeg[2] || 0)
+      );
+    }
+    if (Number.isFinite(w.scale) && w.scale > 0) worldGroup.scale.setScalar(w.scale);
+  }
+  content.add(worldGroup);
+
   if (Array.isArray(scene.layers) && scene.layers.length > 0) {
     // 合成ワールド: 全レイヤーを配置込みで読み込む
     const urls = await Promise.all(scene.layers.map((l) => resolveSceneUrl({ key: l.key })));
@@ -269,7 +285,7 @@ async function loadSplats() {
         g.rotation.set(0, THREE.MathUtils.degToRad(t.headingDeg ?? 0), 0);
         if (Number.isFinite(t.scale) && t.scale > 0) g.scale.setScalar(t.scale);
         g.add(mesh);
-        content.add(g);
+        worldGroup.add(g);
         created.push(mesh);
       })
     );
@@ -280,7 +296,7 @@ async function loadSplats() {
     const mesh = makeSplat(url, v.options || scene.options || {});
     await mesh.initialized;
     applyFlip(mesh, scene.transform);
-    content.add(mesh);
+    worldGroup.add(mesh);
     created.push(mesh);
   }
   threeScene.updateMatrixWorld(true);

@@ -33,6 +33,10 @@ export class Viewer {
     this.baseRotateSpeed = this.controls.fpsMovement.rotateSpeed;
     this.basePointerRotateSpeed = this.controls.pointerControls.rotateSpeed;
 
+    // 全レイヤーの親。シーン全体の位置/回転/倍率(world transform)を担う
+    this.sceneRoot = new THREE.Group();
+    this.scene.add(this.sceneRoot);
+
     this.layers = []; // [{ mesh, group }] — 合成ワールドでは複数レイヤーを同時表示
     this.loadId = 0;
     this.homePose = null; // { position, quaternion }
@@ -203,20 +207,43 @@ export class Viewer {
     meshes.forEach((mesh, index) => {
       const group = new THREE.Group();
       group.add(mesh);
-      this.scene.add(group);
+      this.sceneRoot.add(group);
       const layerDef = sources[index].layer;
       if (layerDef) {
         this.#applyLayerTransform(mesh, group, layerDef.transform);
       } else {
         this.#applyTransform(mesh, sceneInfo.transform);
       }
-      group.updateMatrixWorld(true);
       this.layers.push({ mesh, group });
     });
+
+    // シーン全体の位置/回転/倍率を適用(カメラ自動配置より前に反映)
+    this.#applyWorldTransform(sceneInfo.world);
+    this.sceneRoot.updateMatrixWorld(true);
 
     // 表示データ切替時はカメラを動かさない
     if (!keepCamera) this.#setupCamera(sceneInfo);
     return meshes;
+  }
+
+  // シーン全体を包む sceneRoot への world transform(位置/回転XYZ/倍率)
+  #applyWorldTransform(world) {
+    const pos = world?.position ?? [0, 0, 0];
+    const rot = world?.rotationDeg ?? [0, 0, 0];
+    const scale = Number.isFinite(world?.scale) && world.scale > 0 ? world.scale : 1;
+    this.sceneRoot.position.fromArray(pos);
+    this.sceneRoot.rotation.set(
+      THREE.MathUtils.degToRad(rot[0]),
+      THREE.MathUtils.degToRad(rot[1]),
+      THREE.MathUtils.degToRad(rot[2])
+    );
+    this.sceneRoot.scale.setScalar(scale);
+  }
+
+  /** シーン全体の world transform をライブ更新する(アップロードスタジオ用) */
+  setWorldTransform(world) {
+    this.#applyWorldTransform(world);
+    this.sceneRoot.updateMatrixWorld(true);
   }
 
   /** レイヤーの配置をライブ更新する(合成ワールドの位置合わせ用) */
@@ -291,7 +318,7 @@ export class Viewer {
   #disposeCurrent() {
     this.flight = null;
     for (const { mesh, group } of this.layers) {
-      this.scene.remove(group);
+      this.sceneRoot.remove(group);
       mesh.dispose();
     }
     this.layers = [];

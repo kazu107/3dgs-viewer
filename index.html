@@ -162,6 +162,25 @@
           <input type="checkbox" id="upload-ext" />
         </label>
 
+        <div class="upload-world">
+          <div class="upload-pose-row">
+            <span>全体の配置(シーン全体に適用)</span>
+            <button type="button" class="mini-btn" id="world-reset">リセット</button>
+          </div>
+          <div class="world-grid">
+            <label>位置X<input type="number" id="world-px" step="0.5" value="0" /></label>
+            <label>位置Y<input type="number" id="world-py" step="0.5" value="0" /></label>
+            <label>位置Z<input type="number" id="world-pz" step="0.5" value="0" /></label>
+            <label>回転X°<input type="number" id="world-rx" step="5" value="0" /></label>
+            <label>回転Y°<input type="number" id="world-ry" step="5" value="0" /></label>
+            <label>回転Z°<input type="number" id="world-rz" step="5" value="0" /></label>
+          </div>
+          <div class="ar-slider world-scale">
+            <label>全体の倍率 <output id="world-scale-out">1.00</output></label>
+            <input type="range" id="world-scale" min="-1.5" max="1.5" step="0.02" value="0" />
+          </div>
+        </div>
+
         <div class="upload-pose">
           <div class="upload-pose-row">
             <span>視点(カメラ位置)</span>
