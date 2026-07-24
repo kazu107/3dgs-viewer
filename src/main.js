@@ -545,34 +545,19 @@ const stemOf = (name) => name.replace(/\.[^.]+$/, "");
 
 $("upload-drop").addEventListener("click", () => $("upload-file").click());
 $("upload-file").addEventListener("change", (e) => {
-  const file = e.target.files?.[0];
-  if (file) addLocalFile(file);
+  addLocalFiles(e.target.files);
   e.target.value = "";
 });
 $("upload-add-variant").addEventListener("click", () => $("upload-file-variant").click());
 $("upload-file-variant").addEventListener("change", (e) => {
-  const file = e.target.files?.[0];
-  if (file) addLocalFile(file);
+  addLocalFiles(e.target.files);
   e.target.value = "";
 });
 
-// ファイルを表示データとして追加(1つ目=3DGS、2つ目以降=点群などのバリアント)
-async function addLocalFile(file) {
-  // COLMAPのimages.txtは視点インポートとして扱う
-  if (file.name.toLowerCase().endsWith(".txt")) {
-    importColmapFile(file);
-    return;
-  }
-  if (!SPLAT_EXTS.some((ext) => file.name.toLowerCase().endsWith(ext))) {
-    toast("対応していないファイル形式です (.spz / .ply / .splat / .ksplat / .sog / .rad)", {
-      error: true,
-    });
-    return;
-  }
-  if (upload.files.some((v) => v.file.name === file.name)) {
-    toast("同名のファイルが既に追加されています", { error: true });
-    return;
-  }
+// 1ファイルをリストへ追加(プレビューはしない)。追加できたらtrueを返す
+function pushLocalFile(file) {
+  if (!SPLAT_EXTS.some((ext) => file.name.toLowerCase().endsWith(ext))) return false;
+  if (upload.files.some((v) => v.file.name === file.name)) return false;
   const isFirst = upload.files.length === 0;
   const isPly = file.name.toLowerCase().endsWith(".ply");
   const label =
@@ -592,17 +577,46 @@ async function addLocalFile(file) {
   if (isFirst && !$("upload-name").value.trim()) {
     $("upload-name").value = stemOf(file.name);
   }
+  return true;
+}
+
+// 複数ファイルをまとめて追加(ドラッグ&ドロップ・複数選択対応)。
+// 全ファイルをリストへ追加してから、プレビューは最後に1回だけ実行する。
+async function addLocalFiles(fileList) {
+  const files = Array.from(fileList || []);
+  if (files.length === 0) return;
+
+  const wasEmpty = upload.files.length === 0;
+  // COLMAPのimages.txtは視点インポートとして扱う(スプラットとは別処理)
+  const txtFiles = files.filter((f) => f.name.toLowerCase().endsWith(".txt"));
+  const otherFiles = files.filter((f) => !f.name.toLowerCase().endsWith(".txt"));
+  for (const f of txtFiles) importColmapFile(f);
+
+  let added = 0;
+  let skipped = 0;
+  for (const file of otherFiles) {
+    if (pushLocalFile(file)) added += 1;
+    else skipped += 1;
+  }
+
+  if (skipped > 0) {
+    toast(`${skipped}件はスキップしました(非対応形式または同名で追加済み)`, { error: true });
+  }
+  if (added === 0) return;
+
   $("upload-form").classList.remove("hidden");
   $("upload-status").textContent = "";
   $("upload-status").classList.remove("error");
   setPanel("panel-upload", true);
   renderUploadFiles();
+
   if (upload.mode === "layers") {
-    await previewComposite({ keepCamera: !isFirst });
+    await previewComposite({ keepCamera: !wasEmpty });
   } else {
-    await previewLocalVariant(upload.files.length - 1, { keepCamera: !isFirst });
+    // 切替モード: 直近に追加したファイルをプレビュー
+    await previewLocalVariant(upload.files.length - 1, { keepCamera: !wasEmpty });
   }
-  if (isFirst) {
+  if (wasEmpty) {
     toast("プレビュー中 — 視点と速度を決めてアップロードしてください", { duration: 5000 });
   }
 }
@@ -1077,8 +1091,8 @@ window.addEventListener("drop", (e) => {
   e.preventDefault();
   dragDepth = 0;
   $("drop-overlay").classList.add("hidden");
-  const file = e.dataTransfer?.files?.[0];
-  if (file) addLocalFile(file);
+  const files = e.dataTransfer?.files;
+  if (files && files.length > 0) addLocalFiles(files);
 });
 
 // ---------- 起動 ----------

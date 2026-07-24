@@ -121,11 +121,11 @@
       </button>
     </div>
     <div class="panel-body">
-      <input type="file" id="upload-file" accept=".spz,.ply,.splat,.ksplat,.sog,.rad,.zip" hidden />
-      <input type="file" id="upload-file-variant" accept=".spz,.ply,.splat,.ksplat,.sog,.rad,.zip" hidden />
+      <input type="file" id="upload-file" accept=".spz,.ply,.splat,.ksplat,.sog,.rad,.zip" multiple hidden />
+      <input type="file" id="upload-file-variant" accept=".spz,.ply,.splat,.ksplat,.sog,.rad,.zip" multiple hidden />
       <button type="button" class="upload-drop" id="upload-drop">
-        <strong>ファイルを選択</strong>
-        <span>またはウィンドウにドラッグ&ドロップ</span>
+        <strong>ファイルを選択(複数可)</strong>
+        <span>またはウィンドウにまとめてドラッグ&ドロップ</span>
         <span class="upload-drop-note">3DGS・点群どちらもOK: .spz / .ply / .splat / .ksplat / .sog / .rad</span>
       </button>
 
@@ -200,7 +200,7 @@
 
   <!-- ドラッグ&ドロップの案内 -->
   <div id="drop-overlay" class="hidden">
-    <div class="drop-overlay-card">ここにドロップしてプレビュー</div>
+    <div class="drop-overlay-card">ここにドロップしてプレビュー(複数可)</div>
   </div>
 
   <!-- 表示データ・視点の切替バー -->
