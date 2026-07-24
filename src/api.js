@@ -53,17 +53,32 @@ export async function preflightSceneUrl(url, keyOrName) {
   }
   if (buf.length < 4) return;
 
-  const head = new TextDecoder("utf-8", { fatal: false }).decode(buf.slice(0, 40)).trim();
-  // R2/サーバがファイル本体ではなくXML/JSONのエラー応答を返しているケース
+  // 先頭(最大256バイト)を文字列化。R2のXMLエラーは <Code> が先頭付近に入る
+  const text = new TextDecoder("utf-8", { fatal: false }).decode(buf).trim();
+  const head = text.slice(0, 40);
+  // R2/サーバがファイル本体ではなくXML/JSON/HTMLのエラー応答を返しているケース
   if (
     head.startsWith("<?xml") ||
     head.startsWith("<") ||
-    /<Error>|AccessDenied|NoSuchKey|SignatureDoesNotMatch|InvalidAccessKeyId/i.test(head)
+    /<Error>|AccessDenied|NoSuchKey|SignatureDoesNotMatch|InvalidAccessKeyId/i.test(text)
   ) {
-    throw new Error(
-      "サーバがファイル本体ではなくエラー応答を返しました。" +
-        "R2のCORS設定・APIトークンの権限・オブジェクトキーを確認してください。"
-    );
+    const code = text.match(/<Code>([^<]+)<\/Code>/i)?.[1] || "";
+    const hints = {
+      AccessDenied:
+        "APIトークンにオブジェクトの読み取り権限があるか、対象バケットが権限範囲に含まれているか確認してください。",
+      InvalidAccessKeyId: "R2_ACCESS_KEY_ID が正しいか確認してください。",
+      SignatureDoesNotMatch:
+        "R2_SECRET_ACCESS_KEY が正しいか、PCの時計が大きくずれていないか確認してください。",
+      NoSuchKey:
+        "指定したキーのファイルがバケットに存在しません(scenes.json のキーと実ファイル名の不一致、またはアップロード未完了)。",
+      NoSuchBucket: "R2_BUCKET のバケット名が正しいか確認してください。",
+    };
+    const detail = code
+      ? `R2エラー: ${code}。${hints[code] || "R2の設定を確認してください。"}`
+      : head.toLowerCase().startsWith("<!doctype") || /<html/i.test(head)
+        ? "取得先がR2ではなくHTMLページを返しました。R2_PUBLIC_BASE_URL の設定を確認してください。"
+        : "R2のCORS設定・APIトークンの権限・オブジェクトキーを確認してください。";
+    throw new Error("サーバがファイル本体ではなくエラー応答を返しました。" + detail);
   }
 
   const name = (keyOrName || url.split("?")[0]).toLowerCase();
