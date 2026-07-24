@@ -84,7 +84,7 @@ heroku config:set \
 | `R2_BUCKET` | ✅ | バケット名 |
 | `R2_PREFIX` | - | このプレフィックス配下のみ公開(例: `scenes/`) |
 | `R2_URL_EXPIRES` | - | presigned URLの有効期限秒(デフォルト3600) |
-| `R2_PUBLIC_BASE_URL` | - | カスタムドメイン配信時のベースURL(下記参照) |
+| `R2_PUBLIC_BASE_URL` | - | カスタムドメイン配信時のベースURL(**必ず `https://` から記述**。例: `https://assets.example.com`)。下記参照 |
 
 環境変数が未設定の場合、サイトはSpark公式のデモシーンを表示します(動作確認用)。
 

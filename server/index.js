@@ -29,8 +29,10 @@ const R2_BUCKET = process.env.R2_BUCKET;
 // 例: "scenes/"。バケット内のこのプレフィックス配下だけを公開対象にする
 const R2_PREFIX = normalizePrefix(process.env.R2_PREFIX || "");
 // カスタムドメイン/公開バケットを使う場合のみ設定(例: https://assets.example.com)
-// 設定時はpresigned URLの代わりに公開URLを返す(チャンク分割.radはこちらが必須)
-const R2_PUBLIC_BASE_URL = (process.env.R2_PUBLIC_BASE_URL || "").replace(/\/+$/, "");
+// 設定時はpresigned URLの代わりに公開URLを返す(チャンク分割.radはこちらが必須)。
+// スキーム(https://)が無いと相対URL扱いになり自サーバのHTMLを取得してしまうため、
+// 未指定なら https:// を補う。
+const R2_PUBLIC_BASE_URL = normalizePublicBaseUrl(process.env.R2_PUBLIC_BASE_URL);
 const URL_EXPIRES_SECONDS = clampInt(process.env.R2_URL_EXPIRES, 60, 604800, 3600);
 // アップロードスタジオ(ローカル起動時のみ)。upload-studio.bat が --upload で起動する。
 // Heroku本番では有効にしないこと — 認証なしの書き込みエンドポイントが公開される
@@ -69,6 +71,12 @@ const DEMO_SCENES = [
     demo: true,
   },
 ];
+
+function normalizePublicBaseUrl(value) {
+  let url = (value || "").trim().replace(/\/+$/, "");
+  if (url && !/^https?:\/\//i.test(url)) url = `https://${url}`;
+  return url;
+}
 
 function normalizePrefix(prefix) {
   const p = prefix.replace(/^\/+/, "");
