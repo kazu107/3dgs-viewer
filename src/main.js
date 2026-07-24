@@ -1,6 +1,6 @@
 import "./style.css";
 import { Viewer } from "./viewer.js";
-import { fetchScenes, resolveSceneUrl } from "./api.js";
+import { fetchScenes, resolveSceneUrl, preflightSceneUrl } from "./api.js";
 import { parseColmapImagesText } from "./colmap.js";
 
 const $ = (id) => document.getElementById(id);
@@ -105,6 +105,8 @@ function hideLoading() {
 // Sparkやfetchの分かりにくいエラーを、原因が伝わる日本語メッセージに変換する
 function friendlyLoadError(err) {
   const raw = (err && (err.message || String(err))) || "不明なエラー";
+  // 既に日本語で説明済み(preflight等の意図的なメッセージ)はそのまま表示する
+  if (/[ぁ-んァ-ヶ一-龠]/.test(raw)) return raw;
   if (/gzip|inflate|invalid.*header|incorrect header check|unexpected end/i.test(raw)) {
     return (
       "ファイルを復号できませんでした。\n" +
@@ -261,12 +263,17 @@ async function loadScene(scene, { variant = 0, keepCamera = false } = {}) {
       // 合成ワールド: 全レイヤーのURLを解決して同時ロード
       const urls = await Promise.all(scene.layers.map((l) => resolveSceneUrl({ key: l.key })));
       if (token !== loadSeq) return;
+      // 復号前に各レイヤーのファイルを事前検査(問題があれば分かりやすく通知)
+      await Promise.all(urls.map((u, i) => preflightSceneUrl(u, scene.layers[i].key)));
+      if (token !== loadSeq) return;
       sources = scene.layers.map((l, i) => ({ url: urls[i], layer: l }));
     } else {
       const variants = sceneVariants(scene);
       variantIndex = Math.min(Math.max(0, variant), variants.length - 1);
       const v = variants[variantIndex];
       const url = await resolveSceneUrl(v.url ? v : { key: v.key });
+      if (token !== loadSeq) return;
+      await preflightSceneUrl(url, v.key || scene.key || v.url || url);
       if (token !== loadSeq) return;
       // バリアント側のキー/オプションでロード(transform等はシーン共通)
       sceneInfo = { ...scene, key: v.key ?? scene.key, options: v.options ?? scene.options };
