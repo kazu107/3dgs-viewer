@@ -17,19 +17,17 @@ export default defineConfig({
     },
   },
   resolve: {
-    // Spark と AR.js が同一の three (r0.180) インスタンスを共有するために必須。
-    // AR.js(@ar-js-org/ar.js-threejs)は three を bare import するため、
-    // 単一インスタンスに束ねないと scene graph / instanceof が壊れる。
+    // Spark と AR.js が同一の three (r0.180) を共有するため single-instance にする。
+    // 物理的な単一化は package.json の overrides:{three} で担保済み(node_modules上に
+    // three は1つだけ)。ここで three を alias で絶対パスへ強制すると Spark 同梱の
+    // SPZデコード用 Worker のバンドルが壊れ、スプラットが0個になる不具合が出たため、
+    // alias は使わず dedupe のみに留める。
     dedupe: ["three"],
-    alias: [
-      { find: /^three$/, replacement: path.resolve(__dirname, "node_modules/three") },
-    ],
   },
   optimizeDeps: {
     // Spark はWASM/WebWorkerを内包した単一ESMとして配布されるため、
     // 事前バンドル(esbuild)を通すとworker解決が壊れることがある
     exclude: ["@sparkjsdev/spark"],
-    include: ["three", "@ar-js-org/ar.js-threejs"],
   },
   server: {
     proxy: {

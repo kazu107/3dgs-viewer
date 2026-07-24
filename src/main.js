@@ -102,6 +102,29 @@ function hideLoading() {
   overlay.setAttribute("aria-hidden", "true");
 }
 
+// Sparkやfetchの分かりにくいエラーを、原因が伝わる日本語メッセージに変換する
+function friendlyLoadError(err) {
+  const raw = (err && (err.message || String(err))) || "不明なエラー";
+  if (/gzip|inflate|invalid.*header|incorrect header check|unexpected end/i.test(raw)) {
+    return (
+      "ファイルを復号できませんでした。\n" +
+      "有効な .spz(gzip圧縮)ではない可能性があります。よくある原因:\n" +
+      "・R2/サーバがファイル本体ではなくエラー応答(XML/JSON)を返している(CORS・キー・権限を確認)\n" +
+      "・ファイルが壊れている、または転送中に切れた\n" +
+      "・.spz でないファイルを .spz として読み込もうとしている\n" +
+      `(詳細: ${raw})`
+    );
+  }
+  if (/CORS|Failed to fetch|NetworkError|Load failed/i.test(raw)) {
+    return (
+      "ファイルの取得に失敗しました(ネットワーク/CORS)。\n" +
+      "R2バケットのCORS設定と、AllowedOrigins が現在のURLと一致しているか確認してください。\n" +
+      `(詳細: ${raw})`
+    );
+  }
+  return raw;
+}
+
 function showLoadError(message, retry) {
   const overlay = $("loading-overlay");
   // 起動失敗時などshowLoadingを経由しない経路でも必ず表示する
@@ -111,7 +134,11 @@ function showLoadError(message, retry) {
   $("loading-title").textContent = "読み込みに失敗しました";
   $("loading-bar").classList.remove("indeterminate");
   $("loading-bar").style.width = "0%";
-  $("loading-detail").textContent = message;
+  const detail = $("loading-detail");
+  detail.textContent = friendlyLoadError(message);
+  // 複数行の原因説明を読みやすく表示
+  detail.style.whiteSpace = "pre-line";
+  detail.style.textAlign = "left";
   if (!overlay.querySelector(".retry-btn")) {
     const btn = document.createElement("button");
     btn.className = "retry-btn";
