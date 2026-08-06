@@ -181,8 +181,9 @@ export class Viewer {
             fileBytes: source.fileBytes,
             fileName: source.fileName,
             onProgress: onProgress ? (e) => onProgress(index, e) : undefined,
-            // 広域シーン向け: .rad以外はデフォルトでランタイムLoDツリーを構築
-            lod: options.lod ?? (isRad ? undefined : true),
+            // .rad は事前構築済みLoDを含むためlodオプションは渡さない。
+            // それ以外は options.lod に従う(未指定時のみランタイムLoDを構築)
+            lod: isRad ? undefined : (options.lod ?? true),
             // 原点から離れた座標での量子化誤差を防ぐ(広域シーン向け)
             extSplats: options.extSplats ?? undefined,
             paged: options.paged ?? undefined,

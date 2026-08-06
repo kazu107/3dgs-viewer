@@ -158,7 +158,7 @@ npx wrangler r2 object put 3dgs-scenes/scenes/my-city.spz --file=./my-city.spz -
 | フィールド | 説明 |
 | --- | --- |
 | `key` | バケット内のオブジェクトキー(必須) |
-| `options.lod` | ランタイムLoDツリー構築(デフォルト: `.rad`以外は`true`) |
+| `options.lod` | ランタイムLoDツリー構築。未指定時は`true`(`.rad`は事前構築済みのため常に無効)。アップロードスタジオの「LoD 構築」は**既定オフ**で、オフのまま保存すると`false`が記録される |
 | `options.extSplats` | 32byte/スプラットの高精度座標。原点から離れる広域シーンで推奨 |
 | `options.paged` | ページングストリーミング(チャンク分割`.rad`用) |
 | `options.maxSplats` | 読み込むスプラット数の上限 |

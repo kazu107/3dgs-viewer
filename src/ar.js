@@ -246,7 +246,8 @@ function makeSplat(url, options = {}) {
   const isRad = /\.rad$/i.test(url.split("?")[0]);
   return new SplatMesh({
     url,
-    lod: options.lod ?? (isRad ? undefined : true),
+    // .rad は事前構築済みLoDを含むためlodオプションは渡さない
+    lod: isRad ? undefined : (options.lod ?? true),
     extSplats: options.extSplats ?? undefined,
     paged: options.paged ?? undefined,
   });
