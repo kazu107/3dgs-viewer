@@ -37,7 +37,9 @@ export class Viewer {
     this.sceneRoot = new THREE.Group();
     this.scene.add(this.sceneRoot);
 
-    this.layers = []; // [{ mesh, group }] — 合成ワールドでは複数レイヤーを同時表示
+    this.layers = []; // [{ mesh, group, isSkybox }] — 合成ワールドでは複数レイヤーを同時表示
+    this.skyboxLayers = []; // 視点に追従させるレイヤー(layers の部分集合)
+    this.tmpVec = new THREE.Vector3();
     this.loadId = 0;
     this.homePose = null; // { position, quaternion }
     this.flight = null; // 進行中のフライトアニメーション
@@ -73,6 +75,22 @@ export class Viewer {
     this.renderer.setAnimationLoop((t) => this.#frame(t));
   }
 
+  // 空(skybox)を毎フレーム視点へ移動させ、視差をゼロにする。
+  // 半径2000のシェルに対しシーン半径は約414なので、固定したままだと100単位
+  // 動くだけで空が5%ずれ、「内側にいる有限の球」に見えてしまう。追従させると
+  // 半径に関係なく常に無限遠として振る舞う。
+  #followSkybox() {
+    if (!this.skyboxLayers.length) return;
+    for (const { group } of this.skyboxLayers) {
+      const p = this.tmpVec.copy(this.camera.position);
+      this.sceneRoot.worldToLocal(p); // 視点を sceneRoot ローカル座標へ
+      const b = group.userData.baseOffset;
+      if (b) p.add(b);
+      group.position.copy(p);
+      group.updateMatrixWorld(true);
+    }
+  }
+
   #resize() {
     const w = this.container.clientWidth || window.innerWidth;
     const h = this.container.clientHeight || window.innerHeight;
@@ -91,6 +109,7 @@ export class Viewer {
       this.controls.update(this.camera);
     }
 
+    this.#followSkybox();
     this.renderer.render(this.scene, this.camera);
 
     if (this.screenshotName) {
@@ -215,8 +234,17 @@ export class Viewer {
       } else {
         this.#applyTransform(mesh, sceneInfo.transform);
       }
-      this.layers.push({ mesh, group });
+      // 空(skybox)は「無限遠の背景」であってシーンの一部ではない。
+      // transform.skybox で明示、もしくはレイヤー名/ファイル名から自動判定する。
+      const src = sources[index];
+      const isSkybox =
+        layerDef?.transform?.skybox === true ||
+        /skybox/i.test(
+          layerDef?.name || layerDef?.key || src.fileName || src.url || ""
+        );
+      this.layers.push({ mesh, group, isSkybox });
     });
+    this.skyboxLayers = this.layers.filter((l) => l.isSkybox);
 
     // シーン全体の位置/回転/倍率を適用(カメラ自動配置より前に反映)
     this.#applyWorldTransform(sceneInfo.world);
@@ -323,6 +351,7 @@ export class Viewer {
       mesh.dispose();
     }
     this.layers = [];
+    this.skyboxLayers = [];
   }
 
   #applyTransform(mesh, transform) {
@@ -352,6 +381,8 @@ export class Viewer {
     group.rotation.set(0, THREE.MathUtils.degToRad(transform?.headingDeg ?? 0), 0);
     const scale = Number.isFinite(transform?.scale) && transform.scale > 0 ? transform.scale : 1;
     group.scale.setScalar(scale);
+    // skybox 追従が毎フレーム position を書き換えるので、指定値を控えておく
+    group.userData.baseOffset = group.position.clone();
   }
 
   #setupCamera(sceneInfo) {
@@ -360,13 +391,22 @@ export class Viewer {
     let diag = 10;
 
     try {
-      // 全レイヤーのバウンディングボックスを統合
+      // 全レイヤーのバウンディングボックスを統合。
+      // skybox は半径Rのドームなので対角 ~3.0R になり、下の初期配置
+      // (center + 0.55*diag = 1.67R) がシェルの外へ出てしまう。すると空が
+      // 「包み込む背景」ではなく「巨大な球体」として見える。半径をいくら
+      // 変えても比は一定なので、構図計算からは常に除外する。
       const box = new THREE.Box3();
-      for (const { mesh } of this.layers) {
-        const b = mesh.getBoundingBox().clone();
-        b.applyMatrix4(mesh.matrixWorld);
-        box.union(b);
-      }
+      const addLayers = (skyboxToo) => {
+        for (const { mesh, isSkybox } of this.layers) {
+          if (isSkybox && !skyboxToo) continue;
+          const b = mesh.getBoundingBox().clone();
+          b.applyMatrix4(mesh.matrixWorld);
+          box.union(b);
+        }
+      };
+      addLayers(false);
+      if (box.isEmpty()) addLayers(true); // 空だけを表示している場合
       if (!box.isEmpty()) {
         center = box.getCenter(new THREE.Vector3());
         diag = Math.max(box.getSize(new THREE.Vector3()).length(), 0.1);
