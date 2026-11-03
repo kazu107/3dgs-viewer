@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { SparkRenderer, SplatMesh, SparkControls } from "@sparkjsdev/spark";
+import { splatLocalBounds } from "./splat-bounds.js";
 
 const QUALITY_MAX_STD_DEV = [2.0, 2.4, Math.sqrt(8)];
 
@@ -400,7 +401,8 @@ export class Viewer {
       const addLayers = (skyboxToo) => {
         for (const { mesh, isSkybox } of this.layers) {
           if (isSkybox && !skyboxToo) continue;
-          const b = mesh.getBoundingBox().clone();
+          const b = splatLocalBounds(mesh);
+          if (b.isEmpty()) continue;
           b.applyMatrix4(mesh.matrixWorld);
           box.union(b);
         }

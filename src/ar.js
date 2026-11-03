@@ -3,6 +3,7 @@ import * as THREE from "three";
 import { THREEx } from "@ar-js-org/ar.js-threejs";
 import { SparkRenderer, SplatMesh } from "@sparkjsdev/spark";
 import { fetchScenes, resolveSceneUrl } from "./api.js";
+import { splatLocalBounds } from "./splat-bounds.js";
 
 // three が Spark と AR.js で同一インスタンスか(dedupe成功か)の保険チェック
 console.log(`[AR] three r${THREE.REVISION}`);
@@ -307,7 +308,7 @@ async function loadSplats() {
   const inv = new THREE.Matrix4().copy(content.matrixWorld).invert();
   for (const mesh of created) {
     try {
-      const b = mesh.getBoundingBox().clone();
+      const b = splatLocalBounds(mesh);
       b.applyMatrix4(new THREE.Matrix4().multiplyMatrices(inv, mesh.matrixWorld));
       if (!b.isEmpty()) box.union(b);
     } catch {
