@@ -1,0 +1,18 @@
+# 秘密情報・ローカル生成物をイメージに入れない
+.env
+.env.*
+!.env.example
+node_modules
+dist
+.git
+.claude
+*.log
+# スプラット本体は R2 に置く
+*.ply
+*.spz
+*.splat
+*.ksplat
+*.sog
+*.rad
+*.radc
+upload-studio.bat
