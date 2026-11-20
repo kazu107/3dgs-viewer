@@ -3,7 +3,7 @@
 広域 3D Gaussian Splatting シーンをブラウザ上でフライカメラで自由に探索できるWebビューアです。
 
 - **レンダラー**: [Spark 2.x](https://sparkjs.dev/) + Three.js(WebGL2、LoD対応で1億スプラット級の広域シーンも表示可能)
-- **ホスティング**: Heroku(GitHub連携の自動デプロイ)
+- **ホスティング**: Contabo VPS + [Coolify](https://coolify.io/)(Dockerfile でビルド、GitHub `main` へのpushで自動デプロイ)。前面は Cloudflare プロキシ
 - **シーン保存**: Cloudflare R2(presigned URLでブラウザからR2へ直接ダウンロード)
 
 ## 機能
@@ -19,7 +19,7 @@
 ## アーキテクチャ
 
 ```
-ブラウザ ──(静的ファイル + /api)── Express on Heroku
+ブラウザ ──(静的ファイル + /api)── Express on Coolify (VPS)
    │                                   │
    │  GET /api/scenes                  │ ListObjectsV2 + scenes.json
    │  GET /api/scenes/url?key=...      │ presigned URL発行 (数ms、R2への通信なし)
@@ -27,7 +27,7 @@
    └──(スプラット本体を直接ダウンロード)──▶ Cloudflare R2
 ```
 
-大きなシーンファイルはHerokuを経由せずR2から直接取得するため、Herokuの30秒タイムアウトやdynoメモリの制約を受けません。
+大きなシーンファイルはアプリサーバを経由せずR2から直接取得するため、サーバのタイムアウトやメモリの制約を受けません。
 
 ## セットアップ
 
@@ -44,13 +44,13 @@
 
 ブラウザがpresigned URLでR2から直接ファイルを取得するため、CORS設定が**必須**です。
 
-バケット → **設定** → **CORSポリシー** → **CORSポリシーを追加** に以下を貼り付け(オリジンは自分のHerokuアプリのURLに変更):
+バケット → **設定** → **CORSポリシー** → **CORSポリシーを追加** に以下を貼り付け(オリジンは公開サイトのURLに変更):
 
 ```json
 [
   {
     "AllowedOrigins": [
-      "https://<あなたのアプリ名>.herokuapp.com",
+      "https://3dgs.kazu107.xyz",
       "http://localhost:3000",
       "http://localhost:5173"
     ],
@@ -64,17 +64,9 @@
 
 `AllowedOrigins` は `スキーム://ホスト` の完全一致です(パスを含めない・末尾スラッシュなし)。反映まで30秒ほどかかります。
 
-### 3. Heroku の環境変数(config vars)
+### 3. 本番の環境変数(Coolify)
 
-Herokuダッシュボード → アプリ → **Settings** → **Config Vars**、または CLI で設定:
-
-```bash
-heroku config:set \
-  R2_ACCOUNT_ID=<アカウントID> \
-  R2_ACCESS_KEY_ID=<アクセスキーID> \
-  R2_SECRET_ACCESS_KEY=<シークレットアクセスキー> \
-  R2_BUCKET=3dgs-scenes
-```
+Coolify(SSHトンネル経由の管理画面)→ プロジェクト **3dgs-viewer** → アプリ **3dgs-viewer** → **Environment Variables** に設定します。秘密情報をイメージに含めないよう、**Runtime のみ**(Build 時には渡さない)で登録してください。変更後は再デプロイで反映されます。
 
 | 変数 | 必須 | 説明 |
 | --- | --- | --- |
@@ -110,9 +102,9 @@ heroku config:set \
 
 必要な準備(初回のみ):
 - `.env.example` をコピーして `.env` を作成し、R2の接続情報を記入
-- APIトークンは「**オブジェクト読み取りと書き込み**」権限で作成(Heroku側は読み取り専用のままでOK)
+- APIトークンは「**オブジェクト読み取りと書き込み**」権限で作成(本番サーバ側は読み取り専用でも動作します)
 
-> アップロード機能はローカル起動時のみ有効です(`--upload` フラグ)。Heroku上の公開サイトには書き込みAPIは存在しません。
+> アップロード機能はローカル起動時のみ有効です(`--upload` フラグ)。本番の公開サイトには書き込みAPIは存在しません。
 
 #### 方法B: 手動アップロード
 
@@ -189,7 +181,7 @@ npx wrangler r2 object put 3dgs-scenes/scenes/my-city.spz --file=./my-city.spz -
 
 ### 制約(重要)
 
-- **HTTPS必須**。カメラは `https://` でのみ使えます(Herokuは自動でHTTPS)。ローカルは `localhost` のみ可
+- **HTTPS必須**。カメラは `https://` でのみ使えます(本番は Cloudflare 経由で常にHTTPS)。ローカルは `localhost` のみ可
 - AR.jsは**SLAMではない**ため、シーンはマーカーがカメラに映っている間だけ固定されます。マーカーが画面外に出ると追従が切れます → 「机の上のマーカーに置いて眺める」用途向き。広く歩き回る用途には不向きです
 - 小さいマーカーに大きいシーンを固定すると位置がブレやすくなります(なるべく大きく印刷)
 - モバイルGPU負荷を抑えるため、AR表示は軽量なシーン(〜数十万スプラット)推奨
@@ -216,7 +208,12 @@ npm start              # http://localhost:3000
 
 ## デプロイ
 
-GitHubの `main` ブランチへのpushで、Herokuが自動的に `npm install` → `npm run build`(Viteビルド)→ `npm start` を実行します。追加のビルド設定は不要です。
+本番は Contabo VPS 上の Coolify(プロジェクト **3dgs-viewer**)で動いています。
+
+- GitHub の `main` へpushすると、VPS の systemd タイマー `3dgs-viewer-autodeploy`(2分おき)が新しいコミットを検知し、Coolify が `Dockerfile` でビルドしてローリング更新します(イメージ内の `HEALTHCHECK` が通るまで旧コンテナは残ります)
+- 手動で再デプロイしたいときは、Coolify の管理画面からアプリの **Redeploy** を押します
+- TLS は Cloudflare オリジン証明書(`3dgs.kazu107.xyz` 専用、2027年11月20日まで)を Traefik に設定しています。Cloudflare の SSL モードは「フル」
+- 旧 Heroku アプリ `viewer-3dgs` は dyno 0・自動デプロイ無効で停止中(`Procfile` は Heroku に戻す場合のために残しています)
 
 ## 操作方法
 
@@ -237,6 +234,6 @@ GitHubの `main` ブランチへのpushで、Herokuが自動的に `npm install`
 | --- | --- |
 | シーン読み込みで CORS エラー | R2バケットのCORSポリシー未設定 / `AllowedOrigins` がアプリのURLと不一致(上記手順2) |
 | 一覧に何も表示されない | `R2_PREFIX` と実際のキーの不一致、または対応拡張子でない |
-| 「R2未設定」と表示される | Herokuのconfig varsが4つとも設定されているか確認 |
+| 「R2未設定」と表示される | Coolify の環境変数(`R2_ACCOUNT_ID` / `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` / `R2_BUCKET`)が設定されているか確認 |
 | 読み込み途中で失敗する | presigned URLの期限切れ(`R2_URL_EXPIRES` を延長) |
 | 広域シーンで遠景がチラつく | `scenes.json` で `options.extSplats: true` を設定 |

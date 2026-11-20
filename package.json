@@ -1,7 +1,7 @@
 {
   "name": "3dgs-viewer",
   "version": "1.0.0",
-  "description": "広域3D Gaussian Splattingシーンをフライカメラで自由に探索できるWebビューア (Spark 2.x + Three.js + Cloudflare R2 + Heroku)",
+  "description": "広域3D Gaussian Splattingシーンをフライカメラで自由に探索できるWebビューア (Spark 2.x + Three.js + Cloudflare R2 + Coolify)",
   "private": true,
   "type": "module",
   "engines": {

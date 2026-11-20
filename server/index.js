@@ -11,7 +11,7 @@ import {
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { Upload } from "@aws-sdk/lib-storage";
 
-// ローカル開発用に .env があれば読み込む(Heroku本番ではconfig varsを使用)
+// ローカル開発用に .env があれば読み込む(本番は Coolify の環境変数を使用)
 try {
   process.loadEnvFile();
 } catch {
@@ -35,7 +35,7 @@ const R2_PREFIX = normalizePrefix(process.env.R2_PREFIX || "");
 const R2_PUBLIC_BASE_URL = normalizePublicBaseUrl(process.env.R2_PUBLIC_BASE_URL);
 const URL_EXPIRES_SECONDS = clampInt(process.env.R2_URL_EXPIRES, 60, 604800, 3600);
 // アップロードスタジオ(ローカル起動時のみ)。upload-studio.bat が --upload で起動する。
-// Heroku本番では有効にしないこと — 認証なしの書き込みエンドポイントが公開される
+// 本番では有効にしないこと — 認証なしの書き込みエンドポイントが公開される
 const ENABLE_UPLOAD =
   process.env.ENABLE_UPLOAD === "1" || process.argv.includes("--upload");
 
